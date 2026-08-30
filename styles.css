@@ -413,6 +413,29 @@ body[data-controls-open="true"] .control-drawer-toggle {
   align-items: center;
 }
 
+.room-player-status {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: var(--status-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  -webkit-backdrop-filter: var(--status-backdrop);
+  backdrop-filter: var(--status-backdrop);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.room-player-status.ready {
+  color: #1f5130;
+  background: #effaf2;
+  border-color: rgba(31, 81, 48, 0.14);
+}
+
 .game-feedback {
   min-height: 48px;
   margin: 0;
@@ -1324,6 +1347,10 @@ body[data-controls-open="true"] .control-drawer-toggle {
 
   .status-panel-actions {
     margin-top: 0;
+  }
+
+  .room-player-status {
+    justify-self: start;
   }
 
   .keypad-panel {

@@ -636,6 +636,7 @@ const statusEntryMode = document.querySelector("#status-entry-mode");
 const statusGame = document.querySelector("#status-game");
 const statusTimer = document.querySelector("#status-timer");
 const statusSync = document.querySelector("#status-sync");
+const roomPlayerStatus = document.querySelector("#room-player-status");
 const helperText = document.querySelector("#helper-text");
 const feedbackElement = document.querySelector("#game-feedback");
 const modeSelectModal = document.querySelector("#mode-select-modal");
@@ -2260,6 +2261,26 @@ function getPreStartFeedbackMessage() {
   return "Both players are ready. Starting the round...";
 }
 
+function getRoomPlayerStatusMessage() {
+  if (isSinglePlayerMode()) {
+    return "";
+  }
+
+  const playerCount = Math.min(state.roomRoster.length, 2);
+
+  if (!state.roomId) {
+    return "Room Players 0/2 · Join or create a room first";
+  }
+
+  if (playerCount >= 2) {
+    return hasPlayableSeat()
+      ? "Room Players 2/2 · Ready to start"
+      : "Room Players 2/2 · Room full";
+  }
+
+  return `Room Players ${playerCount}/2 · Waiting for another player`;
+}
+
 function hasSessionProgress(session = getCurrentSession()) {
   return Boolean(
     session?.cells?.some((cell) =>
@@ -2723,6 +2744,18 @@ function renderControls() {
       || ((roundStarted || resumableSession) && currentSession.isPaused),
   );
   startGameButton.disabled = !hasPlayableSeat();
+    if (roomPlayerStatus) {
+      const showRoomPlayerStatus = !isSinglePlayerMode();
+      roomPlayerStatus.hidden = !showRoomPlayerStatus;
+
+      if (showRoomPlayerStatus) {
+        roomPlayerStatus.textContent = getRoomPlayerStatusMessage();
+        roomPlayerStatus.classList.toggle("ready", state.roomRoster.length >= 2 && hasPlayableSeat());
+      } else {
+        roomPlayerStatus.textContent = "";
+        roomPlayerStatus.classList.remove("ready");
+      }
+    }
   difficultyControls.querySelectorAll("button").forEach((button) => {
     button.disabled = !hasPlayableSeat() || !canConfigure;
   });
