@@ -2263,22 +2263,20 @@ function getPreStartFeedbackMessage() {
 
 function getRoomPlayerStatusMessage() {
   if (isSinglePlayerMode()) {
-    return "";
+    return "Solo";
   }
 
   const playerCount = Math.min(state.roomRoster.length, 2);
 
   if (!state.roomId) {
-    return "Room Players 0/2 · Join or create a room first";
+    return "0/2";
   }
 
   if (playerCount >= 2) {
-    return hasPlayableSeat()
-      ? "Room Players 2/2 · Ready to start"
-      : "Room Players 2/2 · Room full";
+    return hasPlayableSeat() ? "2/2" : "Full";
   }
 
-  return `Room Players ${playerCount}/2 · Waiting for another player`;
+  return `${playerCount}/2`;
 }
 
 function hasSessionProgress(session = getCurrentSession()) {
@@ -2745,16 +2743,8 @@ function renderControls() {
   );
   startGameButton.disabled = !hasPlayableSeat();
     if (roomPlayerStatus) {
-      const showRoomPlayerStatus = !isSinglePlayerMode();
-      roomPlayerStatus.hidden = !showRoomPlayerStatus;
-
-      if (showRoomPlayerStatus) {
-        roomPlayerStatus.textContent = getRoomPlayerStatusMessage();
-        roomPlayerStatus.classList.toggle("ready", state.roomRoster.length >= 2 && hasPlayableSeat());
-      } else {
-        roomPlayerStatus.textContent = "";
-        roomPlayerStatus.classList.remove("ready");
-      }
+      roomPlayerStatus.textContent = getRoomPlayerStatusMessage();
+      roomPlayerStatus.classList.toggle("ready", !isSinglePlayerMode() && state.roomRoster.length >= 2 && hasPlayableSeat());
     }
   difficultyControls.querySelectorAll("button").forEach((button) => {
     button.disabled = !hasPlayableSeat() || !canConfigure;
