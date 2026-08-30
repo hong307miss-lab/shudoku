@@ -1855,7 +1855,7 @@ async function ensureRoomSocket() {
 
       if (!roomSocket) {
         roomSocket = ioFactory(getRoomServerUrl(), {
-          path: "/api/socket-io/socket.io",
+          path: "/api/socket-io.js/socket.io",
           transports: ["websocket"],
           autoConnect: false,
         });
