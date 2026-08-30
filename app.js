@@ -2704,10 +2704,21 @@ function renderControls() {
     button.classList.toggle("active", button.dataset.entryMode === state.entryMode);
   });
 
-  statusDifficulty.textContent = difficultyLabels[state.difficulty];
-  statusOperator.textContent = getOperatorLabel();
-  statusEntryMode.textContent = entryModeLabels[state.entryMode];
-  statusGame.textContent = getCurrentRoundStatus(currentSession);
+  if (statusDifficulty) {
+    statusDifficulty.textContent = difficultyLabels[state.difficulty];
+  }
+
+  if (statusOperator) {
+    statusOperator.textContent = getOperatorLabel();
+  }
+
+  if (statusEntryMode) {
+    statusEntryMode.textContent = entryModeLabels[state.entryMode];
+  }
+
+  if (statusGame) {
+    statusGame.textContent = getCurrentRoundStatus(currentSession);
+  }
   newPuzzleButton.textContent = `New Puzzle ${state.puzzleIndexes[state.difficulty] + 1}/${getAvailablePuzzleCount(state.difficulty)}`;
   startGameButton.textContent = currentSession.hasWon
     ? "Next Round"
@@ -2742,10 +2753,10 @@ function renderControls() {
       || ((roundStarted || resumableSession) && currentSession.isPaused),
   );
   startGameButton.disabled = !hasPlayableSeat();
-    if (roomPlayerStatus) {
-      roomPlayerStatus.textContent = getRoomPlayerStatusMessage();
-      roomPlayerStatus.classList.toggle("ready", !isSinglePlayerMode() && state.roomRoster.length >= 2 && hasPlayableSeat());
-    }
+  if (roomPlayerStatus) {
+    roomPlayerStatus.textContent = getRoomPlayerStatusMessage();
+    roomPlayerStatus.classList.toggle("ready", !isSinglePlayerMode() && state.roomRoster.length >= 2 && hasPlayableSeat());
+  }
   difficultyControls.querySelectorAll("button").forEach((button) => {
     button.disabled = !hasPlayableSeat() || !canConfigure;
   });
