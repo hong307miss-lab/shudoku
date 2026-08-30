@@ -1,7 +1,6 @@
 window.SUDOKU_RUNTIME_CONFIG = Object.assign(
   {
-    // Example: "https://your-room-server.up.railway.app"
-    roomServerUrl: "",
+    roomServerUrl: "https://shudoku-production.up.railway.app",
   },
   window.SUDOKU_RUNTIME_CONFIG || {},
 );

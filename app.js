@@ -2141,6 +2141,11 @@ function getCurrentSelection() {
   };
 }
 
+function resetCurrentSelectionSession() {
+  const selection = getCurrentSelection();
+  state.sessions[selection.sessionKey] = createSession(selection.difficulty);
+}
+
 function hasBothPlayersReady() {
   if (isSinglePlayerMode()) {
     return true;
@@ -3678,6 +3683,7 @@ function resetRoomStateForModeSelection() {
   disconnectRoomEventStream();
   stopRoomHeartbeat();
   resetCurrentRoundGate();
+  resetCurrentSelectionSession();
   state.gameMode = null;
   state.roomId = "";
   state.roomCode = "";
@@ -3702,6 +3708,7 @@ function resetRoomStateForModeSelection() {
   removeSessionValue(ROOM_NAV_INTENT_KEY);
   closeRoomHubModal();
   closeControlsDrawer();
+  saveState();
   updateSyncStatus("Choose Mode");
   syncPageLinksWithRoom();
   syncCurrentUrlWithRoom();
