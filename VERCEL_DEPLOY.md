@@ -4,6 +4,7 @@
 
 - Frontend pages are served by Vercel static hosting.
 - The room server runs from `api/socket-io.js`.
+- The Socket.IO client path is `/api/socket-io.js`.
 - Healthcheck is available at `/api/health.js`.
 
 ## Before deploy

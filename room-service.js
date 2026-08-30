@@ -3,7 +3,7 @@ const { URL } = require("node:url");
 
 const ROOM_REJOIN_GRACE_MS = 15_000;
 const ROOM_CAPACITY = 2;
-const SOCKET_IO_PATH = "/api/socket-io.js/socket.io";
+const SOCKET_IO_PATH = "/api/socket-io.js";
 
 function getRoomServiceState() {
   if (!globalThis.__SUDOKU_ROOM_SERVICE_STATE__) {
