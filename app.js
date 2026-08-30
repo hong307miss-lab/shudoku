@@ -1969,6 +1969,7 @@ function applyRoomSnapshot(snapshot, options = {}) {
     return;
   }
 
+  const previousPlayerCount = state.roomRoster.length;
   const nextRevision = Number.isFinite(snapshot.revision) ? Number(snapshot.revision) : 0;
 
   if (!options.force && nextRevision < sharedRevision) {
@@ -2004,6 +2005,17 @@ function applyRoomSnapshot(snapshot, options = {}) {
   syncHarmonyEffects();
   updateRoomAssignment();
   updateSyncStatus(snapshot.playerCount >= 2 ? "Live" : "Waiting...");
+
+  if (
+    previousPlayerCount < 2
+    && state.roomRoster.length >= 2
+    && hasPlayableSeat()
+    && !isCurrentRoundStarted()
+  ) {
+    state.feedback = "Both players joined. Choose the same difficulty and puzzle, then press Start Game.";
+    updateFeedback(state.feedback, "success");
+  }
+
   renderRoomHub();
 }
 
