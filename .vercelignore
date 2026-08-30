@@ -5,3 +5,6 @@ dist
 .trae
 .log
 .figma
+server.js
+railway.json
+RAILWAY_DEPLOY.md
