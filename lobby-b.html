@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script async src="https://jsdelivr.net"></script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Sudoku Prototype - Lobby</title>
+    <link rel="stylesheet" href="./styles.css?v=20260829-navfix" />
+    <style>
+      body.discord-pending .app-shell,
+      body.discord-pending #win-modal {
+        visibility: hidden;
+      }
+    </style>
+  </head>
+  <body data-page-label="Lobby" data-player-page="B">
+    <main class="app-shell">
+      <header class="topbar">
+        <p class="eyebrow">Discord Multiplayer Sudoku</p>
+        <h1>Minimal Sudoku</h1>
+        <p class="subtitle">
+          Lobby for live shared Sudoku progress. Player-specific effects can be layered on top later.
+        </p>
+        <nav class="page-switcher" aria-label="Player pages">
+          <a class="chip-button page-link-button active" href="./lobby-b.html" aria-current="page">Lobby</a>
+          <a class="chip-button page-link-button" href="./player-b.html?view=vip">VIP Room</a>
+        </nav>
+      </header>
+
+      <button
+        type="button"
+        class="chip-button control-drawer-toggle"
+        id="control-drawer-toggle"
+        aria-expanded="false"
+        aria-controls="controls-panel"
+        aria-label="Open controls"
+      >
+        <span class="control-drawer-toggle-icon" aria-hidden="true"></span>
+      </button>
+      <div class="control-drawer-backdrop" id="control-drawer-backdrop" hidden></div>
+
+      <section class="panel controls-panel" id="controls-panel" aria-label="Game controls">
+        <div class="control-group room-control-group">
+          <span class="control-label">Room</span>
+          <div class="room-summary-card">
+            <strong id="room-summary-title">Solo Board</strong>
+            <span id="room-summary-copy">Switch to co-op mode to join a shared room.</span>
+          </div>
+          <div class="button-row">
+            <button type="button" class="chip-button secondary-chip-button" id="open-room-hub-button">Room Lobby</button>
+            <button type="button" class="chip-button secondary-chip-button" id="copy-room-link-button">Copy Invite</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <span class="control-label">Difficulty</span>
+          <div class="button-row" id="difficulty-controls">
+            <button type="button" class="chip-button" data-difficulty="easy">Easy</button>
+            <button type="button" class="chip-button" data-difficulty="medium">Medium</button>
+            <button type="button" class="chip-button" data-difficulty="hard">Hard</button>
+            <button type="button" class="chip-button secondary-chip-button" id="new-puzzle-button">New Puzzle</button>
+          </div>
+        </div>
+
+        <div class="control-group" id="operator-group">
+          <span class="control-label">Current player</span>
+          <div class="button-row" id="operator-controls">
+            <button type="button" class="chip-button operator-button" data-operator="A">Player A</button>
+            <button type="button" class="chip-button operator-button" data-operator="B">Player B</button>
+          </div>
+        </div>
+
+        <div class="control-group control-exit-group">
+          <div class="button-row">
+            <button type="button" class="chip-button secondary-chip-button" id="exit-to-mode-select-button">Exit</button>
+          </div>
+        </div>
+
+      </section>
+
+      <section class="panel status-panel">
+        <div class="board-meta">
+          <div class="status-panel-header">
+            <div class="status-strip">
+              <div>
+                <span class="status-label">Difficulty</span>
+                <strong id="status-difficulty">Easy</strong>
+              </div>
+              <div>
+                <span class="status-label">Current player</span>
+                <strong id="status-operator">Waiting...</strong>
+              </div>
+              <div>
+                <span class="status-label">Entry mode</span>
+                <strong id="status-entry-mode">Digit</strong>
+              </div>
+              <div>
+                <span class="status-label">Round</span>
+                <strong id="status-game">Waiting</strong>
+              </div>
+              <div class="timer-status-card">
+                <span class="status-label">Time</span>
+                <strong id="status-timer">00:00</strong>
+              </div>
+              <div>
+                <span class="status-label">Sync</span>
+                <strong id="status-sync">Connecting...</strong>
+              </div>
+            </div>
+
+            <div class="status-panel-actions">
+              <button type="button" class="chip-button start-game-button" id="start-game-button">Start Game</button>
+            </div>
+          </div>
+
+          <p class="helper-text" id="helper-text">
+            Digit mode: select a cell, then enter one final number.
+          </p>
+
+          <div class="game-feedback" id="game-feedback" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="board-section">
+        <div class="panel board-panel">
+          <div class="board" id="sudoku-board" aria-label="9x9 Sudoku board"></div>
+        </div>
+
+        <div class="panel keypad-panel">
+          <div class="legend">
+            <span><i class="dot dot-a"></i>Player A</span>
+            <span><i class="dot dot-b"></i>Player B</span>
+            <span><i class="dot dot-given"></i>Given digits</span>
+          </div>
+
+          <div class="control-group input-mode-group">
+            <span class="control-label">Input mode</span>
+            <div class="button-row compact-button-row" id="entry-mode-controls">
+              <button type="button" class="chip-button" data-entry-mode="value">Digit</button>
+              <button type="button" class="chip-button" data-entry-mode="note">Notes</button>
+            </div>
+          </div>
+
+          <div class="keypad" id="keypad">
+            <button type="button" class="keypad-button" data-value="1">1</button>
+            <button type="button" class="keypad-button" data-value="2">2</button>
+            <button type="button" class="keypad-button" data-value="3">3</button>
+            <button type="button" class="keypad-button" data-value="4">4</button>
+            <button type="button" class="keypad-button" data-value="5">5</button>
+            <button type="button" class="keypad-button" data-value="6">6</button>
+            <button type="button" class="keypad-button" data-value="7">7</button>
+            <button type="button" class="keypad-button" data-value="8">8</button>
+            <button type="button" class="keypad-button" data-value="9">9</button>
+            <button type="button" class="keypad-button erase-button" data-action="erase">Erase</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="modal-backdrop hidden" id="mode-select-modal" aria-hidden="true">
+      <div class="modal-card mode-select-card" role="dialog" aria-modal="true" aria-labelledby="mode-select-title">
+        <p class="modal-eyebrow">Play Mode</p>
+        <h2 id="mode-select-title">Choose Your Mode</h2>
+        <p class="modal-copy">Select how this room should behave before you start playing.</p>
+        <div class="mode-option-grid">
+          <button type="button" class="mode-option-button" data-game-mode="single">
+            <strong>Single Mode</strong>
+            <span>Play locally. Other players can join too, but your inputs stay separate.</span>
+          </button>
+          <button type="button" class="mode-option-button" data-game-mode="coop">
+            <strong>Co-op Mode</strong>
+            <span>Use the current shared-board experience and solve the same puzzle together.</span>
+          </button>
+          <button type="button" class="mode-option-button" data-game-mode="versus" disabled>
+            <strong>Versus Mode</strong>
+            <span>Coming soon.</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="room-hub-modal" aria-hidden="true">
+      <div class="modal-card room-hub-card" role="dialog" aria-modal="true" aria-labelledby="room-hub-title">
+        <p class="modal-eyebrow">Room Lobby</p>
+        <h2 id="room-hub-title">Choose Room Action</h2>
+        <p class="modal-copy" id="room-hub-copy">
+          Choose whether to join an existing room or create a new one.
+        </p>
+
+        <div class="room-hub-meta">
+          <span class="room-env-badge" id="room-environment-badge">Detecting...</span>
+          <p class="room-hub-status" id="room-hub-status">Checking runtime...</p>
+        </div>
+
+        <div class="room-hub-nav" id="room-hub-nav" hidden>
+          <button type="button" class="chip-button secondary-chip-button" id="room-hub-back-button">Back</button>
+        </div>
+
+        <section class="room-hub-pane" id="room-hub-entry-pane">
+          <div class="room-hub-option">
+            <button type="button" class="chip-button" id="room-hub-enter-join-button">Join Room</button>
+          </div>
+
+          <div class="room-hub-option">
+            <button type="button" class="chip-button" id="room-hub-enter-create-button">Create Room</button>
+          </div>
+        </section>
+
+        <section class="room-hub-pane" id="room-hub-join-pane" hidden>
+          <div class="room-hub-option">
+            <div>
+              <strong>Auto Join</strong>
+              <p id="room-hub-auto-join-copy">Join the current Discord voice-channel room, or auto-assign one waiting room when you are on the web.</p>
+            </div>
+            <button type="button" class="chip-button" id="room-join-auto-button">Auto Join</button>
+          </div>
+
+          <div class="room-hub-option room-hub-form">
+            <div>
+              <strong>Join With Room Name</strong>
+              <p>Enter your friend&apos;s room name and password.</p>
+            </div>
+            <label class="room-form-field">
+              <span>Room name</span>
+              <input id="room-join-code-input" type="text" maxlength="24" placeholder="Example: 7, a7, b12" />
+            </label>
+            <label class="room-form-field">
+              <span>Password</span>
+              <input id="room-join-password-input" type="text" maxlength="32" placeholder="Room password" />
+            </label>
+            <button type="button" class="chip-button" id="room-join-by-code-button">Join By Name</button>
+          </div>
+
+          <div class="room-hub-option room-hub-form">
+            <div>
+              <strong>Join With Invite Link</strong>
+              <p>Paste a room invite link. The password inside the link will be used automatically.</p>
+            </div>
+            <label class="room-form-field">
+              <span>Invite link</span>
+              <input id="room-join-link-input" type="text" maxlength="512" placeholder="Paste invite link" />
+            </label>
+            <button type="button" class="chip-button" id="room-join-by-link-button">Join By Link</button>
+          </div>
+
+        </section>
+
+        <section class="room-hub-pane" id="room-hub-create-pane" hidden>
+          <div class="room-hub-option room-hub-form">
+            <div>
+              <strong>Create Room</strong>
+              <p>Enter a unique room name and password to create and enter a private room. Use a short name like 7, a7, or b12.</p>
+            </div>
+            <label class="room-form-field">
+              <span>Room name</span>
+              <input id="room-create-name-input" type="text" maxlength="24" placeholder="Example: 7, a7, b12" />
+            </label>
+            <label class="room-form-field">
+              <span>Password</span>
+              <input id="room-create-password-input" type="text" maxlength="32" placeholder="Optional password" />
+            </label>
+            <button type="button" class="chip-button" id="room-create-button">Create Room</button>
+          </div>
+
+          <div class="room-hub-option room-hub-form">
+            <div>
+              <strong>Create With Invite Link</strong>
+              <p>Create a room instantly and generate an invite link right away. A short room name will be created automatically.</p>
+            </div>
+            <button type="button" class="chip-button secondary-chip-button" id="room-create-link-button">Generate Invite Link</button>
+          </div>
+        </section>
+
+        <div class="room-invite-block">
+          <label class="room-form-field">
+            <span>Invite link</span>
+            <input id="room-invite-field" type="text" readonly placeholder="Create or join a room to generate an invite." />
+          </label>
+          <div class="room-hub-inline-actions">
+            <button type="button" class="chip-button secondary-chip-button" id="copy-room-link-inline-button">Copy Invite</button>
+            <button type="button" class="chip-button" id="enter-created-room-button" hidden>Enter Room</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="win-modal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="win-title">
+        <p class="modal-eyebrow">Sudoku Complete</p>
+        <h2 id="win-title">Congratulations!</h2>
+        <p class="modal-copy">You filled the whole board without any duplicate conflicts.</p>
+        <p class="modal-time" id="win-time">Time: 00:00</p>
+        <button type="button" class="chip-button modal-close-button" id="close-win-modal">Nice</button>
+      </div>
+    </div>
+
+    <script src="https://cdn.discordapp.com/sdk.js"></script>
+    <script src="./config.js?v=20260830-remote-room-server"></script>
+    <script src="./vendor/socket.io.min.js?v=20260830-remote-room-server"></script>
+    <script src="./game-content.js"></script>
+    <script src="./app.js?v=20260830-remote-room-server"></script>
+  </body>
+</html>
