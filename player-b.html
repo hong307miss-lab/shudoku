@@ -5,7 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Discord Sudoku Prototype - VIP Room</title>
-    <link rel="stylesheet" href="./styles.css?v=20260829-navfix" />
+    <link rel="stylesheet" href="./styles.css?v=20261008-ranked-rightpanel" />
     <style>
       body.discord-pending .app-shell,
       body.discord-pending #win-modal {
@@ -152,6 +152,36 @@
             <button type="button" class="keypad-button" data-value="9">9</button>
             <button type="button" class="keypad-button erase-button" data-action="erase">Erase</button>
           </div>
+
+          <div class="ranked-panel hidden" id="ranked-panel">
+            <div class="ranked-summary-card">
+              <div class="ranked-summary-header">
+                <div class="ranked-summary-copy">
+                  <strong id="ranked-player-name-display">No Name Yet</strong>
+                  <span id="ranked-player-name-copy">Enter your name to join the same-puzzle leaderboard.</span>
+                </div>
+                <button type="button" class="chip-button secondary-chip-button ranked-name-button" id="ranked-change-name-button">Name</button>
+              </div>
+              <div class="ranked-live-stats">
+                <div class="ranked-live-stat">
+                  <span class="ranked-live-stat-label">Current Time</span>
+                  <strong id="ranked-current-time">--:--</strong>
+                </div>
+                <div class="ranked-live-stat">
+                  <span class="ranked-live-stat-label">Current Rank</span>
+                  <strong id="ranked-current-rank">--</strong>
+                </div>
+              </div>
+            </div>
+            <div class="ranked-leaderboard-card">
+              <div class="ranked-leaderboard-header">
+                <strong>Top 10</strong>
+                <span id="ranked-leaderboard-subtitle">Current puzzle</span>
+              </div>
+              <p class="ranked-leaderboard-status" id="ranked-leaderboard-status">Choose Ranked Solo to load this puzzle leaderboard.</p>
+              <ol class="ranked-leaderboard-list" id="ranked-leaderboard-list"></ol>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -166,13 +196,17 @@
             <strong>Single Mode</strong>
             <span>Play locally. Other players can join too, but your inputs stay separate.</span>
           </button>
+          <button type="button" class="mode-option-button" data-game-mode="ranked">
+            <strong>Ranked Solo</strong>
+            <span>Play alone, enter your name, and compare your clear time with the top 10 players on the same puzzle.</span>
+          </button>
           <button type="button" class="mode-option-button" data-game-mode="coop">
             <strong>Co-op Mode</strong>
             <span>Use the current shared-board experience and solve the same puzzle together.</span>
           </button>
-          <button type="button" class="mode-option-button" data-game-mode="versus" disabled>
+          <button type="button" class="mode-option-button" data-game-mode="versus">
             <strong>Versus Mode</strong>
-            <span>Coming soon.</span>
+            <span>Race to claim cells. Correct answers score points, wrong answers lose points, and claimed cells stay locked.</span>
           </button>
         </div>
       </div>
@@ -283,20 +317,39 @@
       </div>
     </div>
 
+    <div class="modal-backdrop hidden" id="ranked-profile-modal" aria-hidden="true">
+      <div class="modal-card ranked-profile-card" role="dialog" aria-modal="true" aria-labelledby="ranked-profile-title">
+        <p class="modal-eyebrow">Ranked Solo</p>
+        <h2 id="ranked-profile-title">Enter Your Name</h2>
+        <p class="modal-copy">Your name will appear on the top 10 leaderboard for this exact puzzle.</p>
+        <label class="room-form-field">
+          <span>Name</span>
+          <input id="ranked-player-name-input" type="text" maxlength="20" placeholder="Your name" />
+        </label>
+        <div class="room-hub-inline-actions">
+          <button type="button" class="chip-button secondary-chip-button" id="ranked-profile-cancel-button">Back</button>
+          <button type="button" class="chip-button" id="ranked-profile-save-button">Save Name</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-backdrop hidden" id="win-modal" aria-hidden="true">
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="win-title">
         <p class="modal-eyebrow">Sudoku Complete</p>
         <h2 id="win-title">Congratulations!</h2>
-        <p class="modal-copy">You filled the whole board without any duplicate conflicts.</p>
+        <p class="modal-copy" id="win-copy">You filled the whole board without any duplicate conflicts.</p>
         <p class="modal-time" id="win-time">Time: 00:00</p>
         <button type="button" class="chip-button modal-close-button" id="close-win-modal">Nice</button>
       </div>
     </div>
 
     <script src="https://cdn.discordapp.com/sdk.js"></script>
-    <script src="./config.js?v=20260830-remote-room-server"></script>
+    <script src="./config.js?v=20261008-local-preview"></script>
     <script src="./vendor/socket.io.min.js?v=20260830-remote-room-server"></script>
-    <script src="./game-content.js"></script>
-    <script src="./app.js?v=20260830-four-status"></script>
+    <script src="./puzzle-bank/easy.js?v=20261008-easier-easy-bank"></script>
+    <script src="./puzzle-bank/medium.js?v=20261006-puzzle-bank"></script>
+    <script src="./puzzle-bank/hard.js?v=20261006-puzzle-bank"></script>
+    <script src="./game-content.js?v=20261006-puzzle-bank"></script>
+    <script src="./app.js?v=20261008-ranked-rightpanel"></script>
   </body>
 </html>

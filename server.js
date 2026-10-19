@@ -4,6 +4,7 @@ const path = require("node:path");
 const { URL } = require("node:url");
 const { Server } = require("socket.io");
 const { SOCKET_IO_PATH, attachRoomSocketHandlers, getRoomServiceHealth } = require("./room-service");
+const { getLeaderboardHealth, getRankedLeaderboard, submitRankedTime } = require("./leaderboard-service");
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT) || 3000;
@@ -21,12 +22,13 @@ const contentTypes = {
   ".ico": "image/x-icon",
 };
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "Content-Length": Buffer.byteLength(body),
+    ...extraHeaders,
   });
   res.end(body);
 }
@@ -37,6 +39,41 @@ function sendText(res, statusCode, message) {
     "Cache-Control": "no-store",
   });
   res.end(message);
+}
+
+function getApiCorsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+
+    req.on("data", (chunk) => {
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch (error) {
+        reject(new Error("Invalid JSON body."));
+      }
+    });
+
+    req.on("error", (error) => {
+      reject(error);
+    });
+  });
 }
 
 function maybeServeStatic(res, pathname) {
@@ -75,13 +112,47 @@ const server = http.createServer((req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const { pathname } = url;
+    const corsHeaders = getApiCorsHeaders();
 
     if (pathname.startsWith(SOCKET_IO_PATH)) {
       return;
     }
 
+    if (pathname.startsWith("/api/") && req.method === "OPTIONS") {
+      sendJson(res, 200, { ok: true }, corsHeaders);
+      return;
+    }
+
     if (req.method === "GET" && pathname === "/api/health") {
-      sendJson(res, 200, getRoomServiceHealth());
+      sendJson(res, 200, {
+        ...getRoomServiceHealth(),
+        leaderboard: getLeaderboardHealth(),
+      }, corsHeaders);
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/api/ranked-leaderboard") {
+      sendJson(res, 200, {
+        ok: true,
+        ...getRankedLeaderboard({
+          difficulty: url.searchParams.get("difficulty"),
+          puzzleId: url.searchParams.get("puzzleId"),
+          playerName: url.searchParams.get("playerName"),
+          elapsedSeconds: url.searchParams.get("elapsedSeconds"),
+        }),
+      }, corsHeaders);
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/ranked-leaderboard") {
+      readJsonBody(req)
+        .then((payload) => {
+          const result = submitRankedTime(payload);
+          sendJson(res, 200, { ok: true, ...result }, corsHeaders);
+        })
+        .catch((error) => {
+          sendJson(res, 400, { ok: false, error: error.message || "Failed to submit leaderboard score." }, corsHeaders);
+        });
       return;
     }
 

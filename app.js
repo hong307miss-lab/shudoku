@@ -7,6 +7,7 @@ const ROOM_OPERATOR_KEY = "discord-sudoku-room-operator-v1";
 const ROOM_CONTEXT_KEY = "discord-sudoku-room-context-v1";
 const ROOM_NAV_INTENT_KEY = "discord-sudoku-room-nav-intent-v1";
 const VIP_THEME_STORAGE_KEY = "discord-sudoku-vip-theme-v1";
+const RANKED_PLAYER_NAME_STORAGE_KEY = "discord-sudoku-ranked-player-name-v1";
 const DEFAULT_VIP_THEME = "retro";
 const ROOM_CONTEXT_TTL_MS = 45_000;
 let appBootstrapped = false;
@@ -18,6 +19,7 @@ let discordSdk = null;
 let roomSocket = null;
 let roomSocketReadyPromise = null;
 let roomReconnectPending = false;
+const puzzleSolutionCache = new Map();
 
 function getRoomJoinCode() {
   const params = new URLSearchParams(window.location.search);
@@ -35,7 +37,7 @@ function getRoomJoinMode() {
 }
 
 function getRoomMatchMode() {
-  return "coop";
+  return state.gameMode === "versus" ? "versus" : "coop";
 }
 
 function revealDiscordActivitySurface() {
@@ -112,6 +114,7 @@ async function initRuntimeEnvironment() {
 
 const STORAGE_KEY = "discord-sudoku-prototype-v4";
 const SOLO_STORAGE_KEY = "discord-sudoku-solo-v1";
+const SOLO_RANKED_STORAGE_KEY = "discord-sudoku-ranked-solo-v1";
 const GAME_MODE_STORAGE_KEY = "discord-sudoku-game-mode-v1";
 const RUNTIME_CONFIG = window.SUDOKU_RUNTIME_CONFIG || {};
 const CONTENT_CONFIG = window.SUDOKU_CONTENT || {};
@@ -145,6 +148,7 @@ const entryModeLabels = {
 
 const gameModeLabels = {
   single: "Single Mode",
+  ranked: "Ranked Solo",
   coop: "Co-op Mode",
   versus: "Versus Mode",
 };
@@ -212,11 +216,23 @@ const state = {
     },
     startedSessionKey: null,
   },
+  ranked: {
+    playerName: readStoredRankedPlayerName(),
+    leaderboard: [],
+    playerEntry: null,
+    playerRank: null,
+    totalEntries: 0,
+    status: "Choose Ranked Solo to load this puzzle leaderboard.",
+    isLoading: false,
+    boardKey: "",
+    liveElapsedSeconds: null,
+  },
 };
 const isVipRoomPage = document.body.dataset.pageLabel === "VIP Room";
 let persistedStorageFallback = {};
 let gameModeStorageFallback = null;
 let vipThemeStorageFallback = null;
+let rankedPlayerNameStorageFallback = "";
 let roomHeartbeatId = null;
 
 function sanitizeRoomNameInput(value) {
@@ -341,7 +357,7 @@ function readStoredRoomContext() {
 function persistCurrentRoomContext() {
   const roomCode = state.roomCode || state.roomId;
 
-  if (isCoopMode() && roomCode) {
+  if (isRoomMultiplayerMode() && roomCode) {
     writeSessionValue(ROOM_CONTEXT_KEY, JSON.stringify({
       roomCode,
       roomPassword: state.roomPassword || "",
@@ -410,7 +426,7 @@ function readPendingRoomNavigation() {
 function persistPendingRoomNavigation(targetHref) {
   const roomCode = state.roomCode || state.roomId;
 
-  if (!isCoopMode() || !roomCode) {
+  if (!isRoomMultiplayerMode() || !roomCode) {
     removeSessionValue(ROOM_NAV_INTENT_KEY);
     return;
   }
@@ -535,7 +551,7 @@ const roomJoinedAt = getRoomJoinedAt();
 function readStoredGameMode() {
   try {
     const stored = localStorage.getItem(GAME_MODE_STORAGE_KEY);
-    return stored === "single" || stored === "coop" || stored === "versus" ? stored : null;
+    return stored === "single" || stored === "ranked" || stored === "coop" || stored === "versus" ? stored : null;
   } catch (error) {
     return gameModeStorageFallback;
   }
@@ -561,15 +577,62 @@ function clearStoredGameMode() {
   }
 }
 
+function sanitizeRankedPlayerName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 20);
+}
+
+function readStoredRankedPlayerName() {
+  try {
+    return sanitizeRankedPlayerName(localStorage.getItem(RANKED_PLAYER_NAME_STORAGE_KEY) || "");
+  } catch (error) {
+    return rankedPlayerNameStorageFallback;
+  }
+}
+
+function writeStoredRankedPlayerName(name) {
+  const normalizedName = sanitizeRankedPlayerName(name);
+  rankedPlayerNameStorageFallback = normalizedName;
+
+  try {
+    if (normalizedName) {
+      localStorage.setItem(RANKED_PLAYER_NAME_STORAGE_KEY, normalizedName);
+    } else {
+      localStorage.removeItem(RANKED_PLAYER_NAME_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Keep the in-memory fallback for this session.
+  }
+}
+
 function isSinglePlayerMode() {
-  return state.gameMode === "single";
+  return state.gameMode === "single" || state.gameMode === "ranked";
+}
+
+function isRankedSoloMode() {
+  return state.gameMode === "ranked";
 }
 
 function isCoopMode() {
   return state.gameMode === "coop";
 }
 
+function isVersusMode() {
+  return state.gameMode === "versus";
+}
+
+function isRoomMultiplayerMode() {
+  return isCoopMode() || isVersusMode();
+}
+
+function isFilledClaimCell(cell) {
+  return Boolean(cell && !cell.given && cell.value && (cell.owner === "A" || cell.owner === "B"));
+}
+
 function getActiveStateStorageKey() {
+  if (isRankedSoloMode()) {
+    return SOLO_RANKED_STORAGE_KEY;
+  }
+
   return isSinglePlayerMode()
     ? SOLO_STORAGE_KEY
     : `${STORAGE_KEY}:${state.roomId || state.roomCode || "pending"}`;
@@ -621,6 +684,10 @@ const boardElement = document.querySelector("#sudoku-board");
 const controlsPanel = document.querySelector("#controls-panel");
 const controlDrawerToggle = document.querySelector("#control-drawer-toggle");
 const controlDrawerBackdrop = document.querySelector("#control-drawer-backdrop");
+const topbarEyebrow = document.querySelector(".eyebrow");
+const topbarTitle = document.querySelector(".topbar h1");
+const topbarSubtitle = document.querySelector(".subtitle");
+const pageSwitcher = document.querySelector(".page-switcher");
 const difficultyControls = document.querySelector("#difficulty-controls");
 const operatorGroup = document.querySelector("#operator-group");
 const operatorControls = document.querySelector("#operator-controls");
@@ -628,6 +695,7 @@ const entryModeControls = document.querySelector("#entry-mode-controls");
 const themeControls = document.querySelector("#theme-controls");
 const vipSkinRoot = document.querySelector("#vip-skin-root");
 const keypad = document.querySelector("#keypad");
+const boardLegend = document.querySelector(".legend");
 const newPuzzleButton = document.querySelector("#new-puzzle-button");
 const startGameButton = document.querySelector("#start-game-button");
 const statusDifficulty = document.querySelector("#status-difficulty");
@@ -654,6 +722,7 @@ const roomHubJoinPane = document.querySelector("#room-hub-join-pane");
 const roomHubCreatePane = document.querySelector("#room-hub-create-pane");
 const roomHubJoinEntryCopy = document.querySelector("#room-hub-join-entry-copy");
 const roomHubAutoJoinCopy = document.querySelector("#room-hub-auto-join-copy");
+const roomControlGroup = document.querySelector(".room-control-group");
 const roomSummaryTitle = document.querySelector("#room-summary-title");
 const roomSummaryCopy = document.querySelector("#room-summary-copy");
 const openRoomHubButton = document.querySelector("#open-room-hub-button");
@@ -675,10 +744,28 @@ const roomCreatePasswordInput = document.querySelector("#room-create-password-in
 const roomCreateButton = document.querySelector("#room-create-button");
 const roomCreateLinkButton = document.querySelector("#room-create-link-button");
 const exitToModeSelectButton = document.querySelector("#exit-to-mode-select-button");
+const rankedPanel = document.querySelector("#ranked-panel");
+const rankedPlayerNameDisplay = document.querySelector("#ranked-player-name-display");
+const rankedPlayerNameCopy = document.querySelector("#ranked-player-name-copy");
+const rankedCurrentTime = document.querySelector("#ranked-current-time");
+const rankedCurrentRank = document.querySelector("#ranked-current-rank");
+const rankedLeaderboardSubtitle = document.querySelector("#ranked-leaderboard-subtitle");
+const rankedLeaderboardStatus = document.querySelector("#ranked-leaderboard-status");
+const rankedLeaderboardList = document.querySelector("#ranked-leaderboard-list");
+const rankedChangeNameButton = document.querySelector("#ranked-change-name-button");
+const rankedProfileModal = document.querySelector("#ranked-profile-modal");
+const rankedPlayerNameInput = document.querySelector("#ranked-player-name-input");
+const rankedProfileCancelButton = document.querySelector("#ranked-profile-cancel-button");
+const rankedProfileSaveButton = document.querySelector("#ranked-profile-save-button");
 const winModal = document.querySelector("#win-modal");
+const winTitle = document.querySelector("#win-title");
+const winCopy = document.querySelector("#win-copy");
 const winTime = document.querySelector("#win-time");
 const closeWinModalButton = document.querySelector("#close-win-modal");
 const pageLinkButtons = document.querySelectorAll(".page-link-button");
+const defaultTopbarEyebrowText = topbarEyebrow?.textContent || "";
+const defaultTopbarTitleText = topbarTitle?.textContent || "";
+const defaultTopbarSubtitleText = topbarSubtitle?.textContent || "";
 let timerIntervalId = null;
 let vipSkinLinkElement = null;
 let vipSkinLoadToken = 0;
@@ -729,7 +816,311 @@ function closeRoomHubModal() {
   roomHubModal.setAttribute("aria-hidden", "true");
 }
 
+function getRankedBoardKey(selection = getCurrentSelection()) {
+  return `${selection.difficulty}:${selection.puzzleId}`;
+}
+
+function getRankedLeaderboardSubtitleText(selection = getCurrentSelection()) {
+  return `${difficultyLabels[selection.difficulty]} Puzzle ${selection.puzzleIndex + 1}`;
+}
+
+function hasRankedPlayerName() {
+  return Boolean(sanitizeRankedPlayerName(state.ranked.playerName));
+}
+
+function getRankedLiveElapsedSeconds(session = getCurrentSession()) {
+  if (
+    !isRankedSoloMode()
+    || !hasRankedPlayerName()
+    || !session
+    || session.hasWon
+    || !isCurrentRoundStarted(session)
+  ) {
+    return null;
+  }
+
+  return getElapsedSeconds(session);
+}
+
+function isSameRankedEntry(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+
+  if (left.entryId && right.entryId) {
+    return left.entryId === right.entryId;
+  }
+
+  return (
+    String(left.playerName || "").toLowerCase() === String(right.playerName || "").toLowerCase()
+    && Number(left.rank) === Number(right.rank)
+    && Number(left.elapsedSeconds) === Number(right.elapsedSeconds)
+  );
+}
+
+function openRankedProfileModal() {
+  if (!rankedProfileModal) {
+    return;
+  }
+
+  rankedPlayerNameInput.value = state.ranked.playerName || "";
+  rankedProfileModal.classList.remove("hidden");
+  rankedProfileModal.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    rankedPlayerNameInput?.focus();
+    rankedPlayerNameInput?.select();
+  }, 0);
+}
+
+function closeRankedProfileModal() {
+  if (!rankedProfileModal) {
+    return;
+  }
+
+  rankedProfileModal.classList.add("hidden");
+  rankedProfileModal.setAttribute("aria-hidden", "true");
+}
+
+function renderRankedPanel() {
+  if (!rankedPanel) {
+    return;
+  }
+
+  const rankedMode = isRankedSoloMode();
+  rankedPanel.classList.toggle("hidden", !rankedMode);
+
+  if (!rankedMode) {
+    return;
+  }
+
+  const selection = getCurrentSelection();
+  const currentSession = getCurrentSession();
+  const liveElapsedSeconds = getRankedLiveElapsedSeconds(currentSession);
+  const currentPlayerEntry = state.ranked.playerEntry;
+  const currentElapsedSeconds = Number.isFinite(liveElapsedSeconds) && liveElapsedSeconds > 0
+    ? liveElapsedSeconds
+    : currentPlayerEntry?.elapsedSeconds || (hasSessionProgress(currentSession) ? getElapsedSeconds(currentSession) : null);
+
+  rankedPlayerNameDisplay.textContent = state.ranked.playerName || "No Name Yet";
+  rankedPlayerNameCopy.textContent = !state.ranked.playerName
+    ? "Enter your name to see this puzzle's fastest 10 clears and your live rank."
+    : state.ranked.playerRank
+      ? liveElapsedSeconds !== null
+        ? `Current run projects to #${state.ranked.playerRank} on this exact puzzle.`
+        : `Your best visible rank on this puzzle is #${state.ranked.playerRank}.`
+      : "This panel shows the fastest 10 clears for this exact puzzle.";
+  if (rankedCurrentTime) {
+    rankedCurrentTime.textContent = Number.isFinite(currentElapsedSeconds) && currentElapsedSeconds > 0
+      ? formatElapsedTime(currentElapsedSeconds)
+      : "--:--";
+  }
+  if (rankedCurrentRank) {
+    rankedCurrentRank.textContent = state.ranked.playerRank
+      ? `#${state.ranked.playerRank}/${Math.max(state.ranked.totalEntries, state.ranked.playerRank)}`
+      : "--";
+  }
+  rankedLeaderboardSubtitle.textContent = getRankedLeaderboardSubtitleText(selection);
+  rankedLeaderboardStatus.textContent = state.ranked.status;
+  rankedLeaderboardStatus.hidden = state.ranked.leaderboard.length > 0;
+  rankedLeaderboardList.replaceChildren();
+
+  const currentPlayerShown = state.ranked.leaderboard.some((entry) => isSameRankedEntry(entry, currentPlayerEntry));
+
+  state.ranked.leaderboard.forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = "ranked-leaderboard-item";
+
+    if (isSameRankedEntry(entry, currentPlayerEntry)) {
+      item.classList.add("current-player");
+    }
+
+    const name = document.createElement("span");
+    name.className = "ranked-leaderboard-item-name";
+    name.textContent = `#${entry.rank} ${entry.playerName}`;
+
+    const time = document.createElement("span");
+    time.className = "ranked-leaderboard-item-time";
+    time.textContent = formatElapsedTime(entry.elapsedSeconds);
+
+    item.append(name, time);
+    rankedLeaderboardList.append(item);
+  });
+
+  if (currentPlayerEntry && !currentPlayerShown) {
+    const ellipsisItem = document.createElement("li");
+    ellipsisItem.className = "ranked-leaderboard-gap";
+    ellipsisItem.textContent = "...";
+    rankedLeaderboardList.append(ellipsisItem);
+
+    const playerItem = document.createElement("li");
+    playerItem.className = "ranked-leaderboard-item current-player";
+
+    const playerName = document.createElement("span");
+    playerName.className = "ranked-leaderboard-item-name";
+    playerName.textContent = `#${currentPlayerEntry.rank} ${currentPlayerEntry.playerName}`;
+
+    const playerTime = document.createElement("span");
+    playerTime.className = "ranked-leaderboard-item-time";
+    playerTime.textContent = formatElapsedTime(currentPlayerEntry.elapsedSeconds);
+
+    playerItem.append(playerName, playerTime);
+    rankedLeaderboardList.append(playerItem);
+  }
+}
+
+async function refreshRankedLeaderboard(options = {}) {
+  if (!isRankedSoloMode()) {
+    state.ranked.leaderboard = [];
+    state.ranked.playerEntry = null;
+    state.ranked.playerRank = null;
+    state.ranked.totalEntries = 0;
+    state.ranked.status = "Choose Ranked Solo to load this puzzle leaderboard.";
+    state.ranked.isLoading = false;
+    state.ranked.boardKey = "";
+    state.ranked.liveElapsedSeconds = null;
+    renderRankedPanel();
+    return;
+  }
+
+  const selection = options.selection || getCurrentSelection();
+  const boardKey = getRankedBoardKey(selection);
+  const liveElapsedSeconds = Number.isFinite(options.liveElapsedSeconds)
+    ? Math.floor(options.liveElapsedSeconds)
+    : getRankedLiveElapsedSeconds();
+
+  if (
+    !options.force
+    && state.ranked.boardKey === boardKey
+    && state.ranked.liveElapsedSeconds === liveElapsedSeconds
+    && !state.ranked.isLoading
+  ) {
+    renderRankedPanel();
+    return;
+  }
+
+  state.ranked.boardKey = boardKey;
+  state.ranked.liveElapsedSeconds = liveElapsedSeconds;
+  state.ranked.isLoading = true;
+  state.ranked.status = "Loading top 10 times...";
+  renderRankedPanel();
+
+  try {
+    const url = new URL("/api/ranked-leaderboard", getRoomServerUrl());
+    url.searchParams.set("difficulty", selection.difficulty);
+    url.searchParams.set("puzzleId", selection.puzzleId);
+    if (state.ranked.playerName) {
+      url.searchParams.set("playerName", state.ranked.playerName);
+    }
+    if (Number.isFinite(liveElapsedSeconds) && liveElapsedSeconds > 0) {
+      url.searchParams.set("elapsedSeconds", String(liveElapsedSeconds));
+    }
+
+    const response = await window.fetch(url.toString(), { cache: "no-store" });
+    const payload = await response.json();
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || "Failed to load leaderboard.");
+    }
+
+    state.ranked.leaderboard = Array.isArray(payload.leaderboard) ? payload.leaderboard : [];
+    state.ranked.playerEntry = payload.playerEntry || null;
+    state.ranked.playerRank = Number.isInteger(payload.playerRank) && payload.playerRank > 0
+      ? payload.playerRank
+      : null;
+    state.ranked.totalEntries = Number.isInteger(payload.totalEntries) && payload.totalEntries >= 0
+      ? payload.totalEntries
+      : state.ranked.leaderboard.length;
+    state.ranked.status = state.ranked.leaderboard.length > 0
+      ? ""
+      : "No clear times yet for this puzzle.";
+  } catch (error) {
+    state.ranked.leaderboard = [];
+    state.ranked.playerEntry = null;
+    state.ranked.playerRank = null;
+    state.ranked.totalEntries = 0;
+    state.ranked.status = error.message || "Failed to load leaderboard.";
+  } finally {
+    state.ranked.isLoading = false;
+    renderRankedPanel();
+  }
+}
+
+async function submitRankedLeaderboardResult(session = getCurrentSession()) {
+  if (
+    !isRankedSoloMode()
+    || !session?.hasWon
+    || !hasRankedPlayerName()
+    || session.rankedEntryId
+  ) {
+    return;
+  }
+
+  const url = new URL("/api/ranked-leaderboard", getRoomServerUrl());
+  const selection = {
+    difficulty: session.difficulty,
+    puzzleId: session.puzzleId,
+    puzzleIndex: state.puzzleIndexes[session.difficulty] ?? 0,
+  };
+
+  session.rankedSubmissionError = "";
+  renderRankedPanel();
+
+  try {
+    const response = await window.fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        playerName: state.ranked.playerName,
+        difficulty: session.difficulty,
+        puzzleId: session.puzzleId,
+        elapsedSeconds: getElapsedSeconds(session),
+      }),
+    });
+    const payload = await response.json();
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || "Failed to submit ranked time.");
+    }
+
+    session.rankedEntryId = payload.entry?.entryId || "";
+    session.rankedRank = Number.isInteger(payload.rank) && payload.rank > 0 ? payload.rank : null;
+    state.ranked.leaderboard = Array.isArray(payload.leaderboard) ? payload.leaderboard : [];
+    state.ranked.playerEntry = payload.playerEntry || payload.entry || null;
+    state.ranked.playerRank = Number.isInteger(payload.playerRank) && payload.playerRank > 0
+      ? payload.playerRank
+      : session.rankedRank;
+    state.ranked.totalEntries = Number.isInteger(payload.totalEntries) && payload.totalEntries >= 0
+      ? payload.totalEntries
+      : state.ranked.leaderboard.length;
+    state.ranked.status = state.ranked.leaderboard.length > 0 ? "" : "No clear times yet for this puzzle.";
+    state.ranked.boardKey = getRankedBoardKey(selection);
+    state.ranked.liveElapsedSeconds = null;
+    saveState();
+
+    if (winCopy) {
+      winCopy.textContent = state.ranked.playerRank
+        ? `Finished in ${formatElapsedTime(getElapsedSeconds(session))}. You are now #${state.ranked.playerRank} on this puzzle leaderboard.`
+        : `Finished in ${formatElapsedTime(getElapsedSeconds(session))}. Your time has been added to this puzzle leaderboard.`;
+    }
+  } catch (error) {
+    session.rankedSubmissionError = error.message || "Failed to submit ranked time.";
+    saveState();
+
+    if (winCopy) {
+      winCopy.textContent = `Finished in ${formatElapsedTime(getElapsedSeconds(session))}. ${session.rankedSubmissionError}`;
+    }
+  }
+
+  renderRankedPanel();
+}
+
 function getRoomSummaryTitle() {
+  if (isRankedSoloMode()) {
+    return "Ranked Solo";
+  }
+
   if (isSinglePlayerMode()) {
     return "Solo Board";
   }
@@ -762,6 +1153,10 @@ function getRoomSummaryTitle() {
 }
 
 function getRoomSummaryCopy() {
+  if (isRankedSoloMode()) {
+    return "Play alone, submit your time to the same-puzzle leaderboard, and compare against the top 10 clears.";
+  }
+
   if (isSinglePlayerMode()) {
     return "Play locally. Other browsers can open the game too, but their inputs stay isolated.";
   }
@@ -907,14 +1302,14 @@ function renderRoomHub() {
     enterCreatedRoomButton.hidden = !state.roomCreateLinkReady;
     enterCreatedRoomButton.toggleAttribute("disabled", !canEnterCreatedRoom);
   }
-  openRoomHubButton?.toggleAttribute("disabled", !isCoopMode());
-  roomHubEnterJoinButton?.toggleAttribute("disabled", !isCoopMode());
-  roomHubEnterCreateButton?.toggleAttribute("disabled", !isCoopMode());
-  roomJoinAutoButton?.toggleAttribute("disabled", !isCoopMode());
-  roomJoinByCodeButton?.toggleAttribute("disabled", !isCoopMode());
-  roomJoinByLinkButton?.toggleAttribute("disabled", !isCoopMode());
-  roomCreateButton?.toggleAttribute("disabled", !isCoopMode());
-  roomCreateLinkButton?.toggleAttribute("disabled", !isCoopMode());
+  openRoomHubButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
+  roomHubEnterJoinButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
+  roomHubEnterCreateButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
+  roomJoinAutoButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
+  roomJoinByCodeButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
+  roomJoinByLinkButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
+  roomCreateButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
+  roomCreateLinkButton?.toggleAttribute("disabled", !isRoomMultiplayerMode());
 }
 
 async function copyInviteLink() {
@@ -1021,7 +1416,7 @@ async function quickMatchRoom() {
 }
 
 async function ensureCoopRoomSelection() {
-  if (!isCoopMode()) {
+  if (!isRoomMultiplayerMode()) {
     disconnectRoomEventStream();
     stopRoomHeartbeat();
     renderRoomHub();
@@ -1080,23 +1475,37 @@ async function resolveExplicitRoomEntryOnLaunch() {
 }
 
 function applyGameModeSelection(mode) {
-  if (mode !== "single" && mode !== "coop") {
+  if (mode !== "single" && mode !== "ranked" && mode !== "coop" && mode !== "versus") {
     return;
   }
 
   state.gameMode = mode;
+  if (isVersusMode()) {
+    state.entryMode = "value";
+  }
   writeStoredGameMode(mode);
   state.lastRoomError = "";
-  updateSyncStatus(isSinglePlayerMode() ? "Solo" : "Choose Room");
+  updateSyncStatus(isRankedSoloMode() ? "Ranked" : isSinglePlayerMode() ? "Solo" : "Choose Room");
   closeModeSelectModal();
   bootstrapOnce();
 
-  if (mode === "coop") {
+  if (isRoomMultiplayerMode()) {
     void ensureCoopRoomSelection();
   } else {
     removeSessionValue(ROOM_CONTEXT_KEY);
     closeRoomHubModal();
     renderRoomHub();
+    if (isRankedSoloMode()) {
+      void refreshRankedLeaderboard({ force: true });
+
+      if (!hasRankedPlayerName()) {
+        openRankedProfileModal();
+      } else {
+        closeRankedProfileModal();
+      }
+    } else {
+      closeRankedProfileModal();
+    }
   }
 }
 
@@ -1121,10 +1530,11 @@ function shouldPromptModeSelectionOnLaunch() {
 
 function startApp() {
   const crossPageRoomContext = getCrossPageRoomContextOnLaunch();
+  const storedMode = readStoredGameMode();
 
   if (hasExplicitManualRoomEntry()) {
-    state.gameMode = "coop";
-    writeStoredGameMode("coop");
+    state.gameMode = storedMode === "versus" ? "versus" : "coop";
+    writeStoredGameMode(state.gameMode);
     closeModeSelectModal();
     bootstrapOnce();
     void resolveExplicitRoomEntryOnLaunch();
@@ -1135,8 +1545,8 @@ function startApp() {
     state.roomCode = crossPageRoomContext.roomCode;
     state.roomPassword = crossPageRoomContext.roomPassword;
     state.roomJoinMode = crossPageRoomContext.roomJoinMode || "manual";
-    state.gameMode = "coop";
-    writeStoredGameMode("coop");
+    state.gameMode = storedMode === "versus" ? "versus" : "coop";
+    writeStoredGameMode(state.gameMode);
     closeModeSelectModal();
     bootstrapOnce();
     void resolveExplicitRoomEntryOnLaunch();
@@ -1222,6 +1632,103 @@ function getPuzzleConfig(difficulty) {
   const index = state.puzzleIndexes[difficulty] ?? 0;
   const safeIndex = index >= 0 && index < puzzles.length ? index : 0;
   return puzzles[safeIndex];
+}
+
+function solvePuzzleString(puzzleString) {
+  const cells = puzzleString.split("");
+  const rows = Array.from({ length: 9 }, () => new Set());
+  const cols = Array.from({ length: 9 }, () => new Set());
+  const boxes = Array.from({ length: 9 }, () => new Set());
+  const empties = [];
+
+  for (let index = 0; index < 81; index += 1) {
+    const digit = cells[index];
+    const row = Math.floor(index / 9);
+    const col = index % 9;
+    const box = Math.floor(row / 3) * 3 + Math.floor(col / 3);
+
+    if (digit === "0") {
+      empties.push(index);
+      continue;
+    }
+
+    rows[row].add(digit);
+    cols[col].add(digit);
+    boxes[box].add(digit);
+  }
+
+  function backtrack(emptyIndex = 0) {
+    if (emptyIndex >= empties.length) {
+      return true;
+    }
+
+    let bestIndex = emptyIndex;
+    let bestOptions = null;
+
+    for (let cursor = emptyIndex; cursor < empties.length; cursor += 1) {
+      const cellIndex = empties[cursor];
+      const row = Math.floor(cellIndex / 9);
+      const col = cellIndex % 9;
+      const box = Math.floor(row / 3) * 3 + Math.floor(col / 3);
+      const options = [];
+
+      for (let digit = 1; digit <= 9; digit += 1) {
+        const value = String(digit);
+
+        if (!rows[row].has(value) && !cols[col].has(value) && !boxes[box].has(value)) {
+          options.push(value);
+        }
+      }
+
+      if (!bestOptions || options.length < bestOptions.length) {
+        bestIndex = cursor;
+        bestOptions = options;
+      }
+
+      if (!bestOptions.length) {
+        return false;
+      }
+    }
+
+    [empties[emptyIndex], empties[bestIndex]] = [empties[bestIndex], empties[emptyIndex]];
+    const cellIndex = empties[emptyIndex];
+    const row = Math.floor(cellIndex / 9);
+    const col = cellIndex % 9;
+    const box = Math.floor(row / 3) * 3 + Math.floor(col / 3);
+
+    for (const value of bestOptions) {
+      cells[cellIndex] = value;
+      rows[row].add(value);
+      cols[col].add(value);
+      boxes[box].add(value);
+
+      if (backtrack(emptyIndex + 1)) {
+        return true;
+      }
+
+      cells[cellIndex] = "0";
+      rows[row].delete(value);
+      cols[col].delete(value);
+      boxes[box].delete(value);
+    }
+
+    return false;
+  }
+
+  return backtrack() ? cells.join("") : "";
+}
+
+function getPuzzleSolution(difficulty, puzzleId) {
+  const cacheKey = `${difficulty}:${puzzleId}`;
+
+  if (puzzleSolutionCache.has(cacheKey)) {
+    return puzzleSolutionCache.get(cacheKey);
+  }
+
+  const config = getDailyPuzzleConfigs(difficulty).find((item) => item.id === puzzleId);
+  const solution = config ? solvePuzzleString(config.puzzle) : "";
+  puzzleSolutionCache.set(cacheKey, solution);
+  return solution;
 }
 
 function getSessionKey(difficulty, puzzleId) {
@@ -1330,6 +1837,7 @@ function createEmptyCell() {
     value: "",
     owner: null,
     peerEdited: false,
+    claimCorrect: null,
     notes: {},
     duel: null,
     harmonyAt: null,
@@ -1378,6 +1886,7 @@ function normalizeCell(cell) {
       value: /^[1-9]$/.test(cell.value) ? cell.value : "",
       owner: "given",
       peerEdited: false,
+      claimCorrect: null,
       notes: {},
       duel: null,
       harmonyAt: null,
@@ -1398,6 +1907,7 @@ function normalizeCell(cell) {
     value,
     owner: duel ? null : cell.owner === "A" || cell.owner === "B" ? cell.owner : null,
     peerEdited: !duel && value ? cell.peerEdited === true : false,
+    claimCorrect: duel ? null : cell.claimCorrect === true ? true : cell.claimCorrect === false ? false : null,
     notes: normalizeNotes(cell.notes),
     duel,
     harmonyAt: harmonyDigit ? harmonyAt : null,
@@ -1417,6 +1927,9 @@ function createSession(difficulty) {
     isPaused: false,
     elapsedSeconds: 0,
     timerStartedAt: null,
+    rankedEntryId: "",
+    rankedRank: null,
+    rankedSubmissionError: "",
     cells: config.puzzle.split("").map((char) => {
       if (char === "0") {
         return createEmptyCell();
@@ -1426,6 +1939,7 @@ function createSession(difficulty) {
         given: true,
         value: char,
         owner: "given",
+        claimCorrect: null,
         notes: {},
         duel: null,
         harmonyAt: null,
@@ -1875,14 +2389,14 @@ async function ensureRoomSocket() {
 
       roomSocket.on("disconnect", () => {
         roomSocketReadyPromise = null;
-        if (isCoopMode() && state.roomId) {
+        if (isRoomMultiplayerMode() && state.roomId) {
           updateSyncStatus("Reconnecting...");
           roomReconnectPending = true;
         }
       });
 
       roomSocket.on("connect", () => {
-        if (roomReconnectPending && isCoopMode() && state.roomId) {
+        if (roomReconnectPending && isRoomMultiplayerMode() && state.roomId) {
           roomReconnectPending = false;
           void roomSocketRequest("room:resume", {
             clientId: roomClientId,
@@ -1986,6 +2500,14 @@ function applyRoomSnapshot(snapshot, options = {}) {
     state.roomType = snapshot.room.kind || "";
     state.roomSource = snapshot.room.source || "";
     state.roomInviteUrl = snapshot.room.inviteUrl || "";
+    if (snapshot.room.matchMode === "coop" || snapshot.room.matchMode === "versus") {
+      state.gameMode = snapshot.room.matchMode;
+      writeStoredGameMode(state.gameMode);
+
+      if (isVersusMode()) {
+        state.entryMode = "value";
+      }
+    }
   }
 
   isApplyingRemoteState = true;
@@ -2021,7 +2543,7 @@ function applyRoomSnapshot(snapshot, options = {}) {
 }
 
 function connectRoomEventStream() {
-  if (!isCoopMode()) {
+  if (!isRoomMultiplayerMode()) {
     return;
   }
 
@@ -2031,7 +2553,7 @@ function connectRoomEventStream() {
 }
 
 async function heartbeatRoom() {
-  if (!state.roomId || !isCoopMode()) {
+  if (!state.roomId || !isRoomMultiplayerMode()) {
     return;
   }
 
@@ -2048,7 +2570,7 @@ async function heartbeatRoom() {
 }
 
 function startRoomHeartbeat() {
-  if (!isCoopMode()) {
+  if (!isRoomMultiplayerMode()) {
     return;
   }
 
@@ -2064,7 +2586,7 @@ function startRoomHeartbeat() {
 }
 
 async function refreshRoomSnapshot() {
-  if (!state.roomId || !isCoopMode()) {
+  if (!state.roomId || !isRoomMultiplayerMode()) {
     return;
   }
 
@@ -2072,7 +2594,7 @@ async function refreshRoomSnapshot() {
 }
 
 async function persistSharedState() {
-  if (!isCoopMode() || !state.roomId) {
+  if (!isRoomMultiplayerMode() || !state.roomId) {
     return;
   }
 
@@ -2102,7 +2624,7 @@ async function persistSharedState() {
 function saveState() {
   cacheStateLocally();
 
-  if (isCoopMode() && !isApplyingRemoteState) {
+  if (isRoomMultiplayerMode() && !isApplyingRemoteState) {
     void persistSharedState();
   }
 }
@@ -2133,6 +2655,9 @@ function ensureSession(difficulty) {
     ? Math.floor(session.elapsedSeconds)
     : 0;
   session.timerStartedAt = Number.isFinite(session.timerStartedAt) ? session.timerStartedAt : null;
+  session.rankedEntryId = typeof session.rankedEntryId === "string" ? session.rankedEntryId : "";
+  session.rankedRank = Number.isInteger(session.rankedRank) && session.rankedRank > 0 ? session.rankedRank : null;
+  session.rankedSubmissionError = typeof session.rankedSubmissionError === "string" ? session.rankedSubmissionError : "";
 
   if (session.hasWon) {
     finalizeSessionTimer(session);
@@ -2157,6 +2682,59 @@ function getCurrentSelection() {
 function resetCurrentSelectionSession() {
   const selection = getCurrentSelection();
   state.sessions[selection.sessionKey] = createSession(selection.difficulty);
+}
+
+function getVersusClaimableTotal(session = getCurrentSession()) {
+  return session.cells.filter((cell) => !cell.given).length;
+}
+
+function getVersusClaimedCount(session = getCurrentSession()) {
+  return session.cells.filter((cell) => isFilledClaimCell(cell)).length;
+}
+
+function getVersusScores(session = getCurrentSession()) {
+  return session.cells.reduce((scores, cell) => {
+    if (!isFilledClaimCell(cell)) {
+      return scores;
+    }
+
+    const delta = cell.claimCorrect === false ? -1 : 1;
+    scores[cell.owner] += delta;
+    return scores;
+  }, { A: 0, B: 0 });
+}
+
+function getVersusWinner(scores = getVersusScores()) {
+  if (scores.A === scores.B) {
+    return "tie";
+  }
+
+  return scores.A > scores.B ? "A" : "B";
+}
+
+function getVersusScoreSummary(session = getCurrentSession()) {
+  const scores = getVersusScores(session);
+  const claimedCount = getVersusClaimedCount(session);
+  const totalClaimable = getVersusClaimableTotal(session);
+  const remainingCells = Math.max(0, totalClaimable - claimedCount);
+
+  return {
+    scores,
+    claimedCount,
+    totalClaimable,
+    remainingCells,
+    winner: getVersusWinner(scores),
+  };
+}
+
+function getVersusFinishMessage(session = getCurrentSession()) {
+  const summary = getVersusScoreSummary(session);
+
+  if (summary.winner === "tie") {
+    return `Versus finished in a tie. A ${summary.scores.A} : B ${summary.scores.B}.`;
+  }
+
+  return `Player ${summary.winner} wins. A ${summary.scores.A} : B ${summary.scores.B}.`;
 }
 
 function hasBothPlayersReady() {
@@ -2212,8 +2790,16 @@ function getCurrentRoundStatus(session = getCurrentSession()) {
     return "Live";
   }
 
+  if (isRankedSoloMode()) {
+    return hasRankedPlayerName() ? "Leaderboard Ready" : "Name Needed";
+  }
+
   if (isSinglePlayerMode()) {
     return "Ready";
+  }
+
+  if (isVersusMode()) {
+    return hasBothPlayersReady() ? "Face Off" : "Waiting for 2 Players";
   }
 
   if (!hasBothPlayersReady()) {
@@ -2230,13 +2816,21 @@ function getCurrentRoundStatus(session = getCurrentSession()) {
 }
 
 function getPreStartFeedbackMessage() {
+  if (isRankedSoloMode()) {
+    return hasRankedPlayerName()
+      ? "Choose a difficulty and puzzle, then press Start Game to post your best clear time onto this puzzle leaderboard."
+      : "Enter your player name first, then press Start Game to begin your ranked run.";
+  }
+
   if (isSinglePlayerMode()) {
     return "Choose a difficulty and puzzle, then press Start Game to begin your solo run.";
   }
 
   if (!hasPlayableSeat()) {
     if (!state.roomId) {
-      return "Choose or create a co-op room first.";
+      return isVersusMode()
+        ? "Choose or create a versus room first."
+        : "Choose or create a co-op room first.";
     }
 
     return state.roomRoster.length >= 2
@@ -2245,7 +2839,13 @@ function getPreStartFeedbackMessage() {
   }
 
   if (!hasBothPlayersReady()) {
-    return "Choose a difficulty and puzzle, then wait for both Player A and Player B to join.";
+    return isVersusMode()
+      ? "Choose a difficulty and puzzle, then wait for both Player A and Player B to join the match."
+      : "Choose a difficulty and puzzle, then wait for both Player A and Player B to join.";
+  }
+
+  if (isVersusMode()) {
+    return "Both players must lock the same puzzle. Each claimed cell is final: correct answers score, wrong answers lose points.";
   }
 
   const readyCount = getReadyCountForCurrentSelection();
@@ -2341,6 +2941,17 @@ function syncTimerDisplay() {
 
   statusTimer.textContent = session.isPaused ? `${formattedTime} (Paused)` : formattedTime;
   winTime.textContent = `Time: ${formattedTime}`;
+
+  if (
+    isRankedSoloMode()
+    && hasRankedPlayerName()
+    && !session.hasWon
+    && !session.isPaused
+    && isCurrentRoundStarted(session)
+    && !state.ranked.isLoading
+  ) {
+    void refreshRankedLeaderboard({ liveElapsedSeconds: getElapsedSeconds(session) });
+  }
 }
 
 function getCurrentSession() {
@@ -2555,6 +3166,13 @@ function getConflictIndexes(cells) {
 }
 
 function getConflictSummary(cells) {
+  if (isVersusMode()) {
+    return {
+      conflictIndexes: new Set(),
+      message: "",
+    };
+  }
+
   const conflictIndexes = getConflictIndexes(cells);
 
   if (conflictIndexes.size === 0) {
@@ -2581,6 +3199,10 @@ function getDigitCounts(cells) {
 }
 
 function isDigitCompleted(digit, cells = getCurrentSession().cells) {
+  if (isVersusMode()) {
+    return false;
+  }
+
   const counts = getDigitCounts(cells);
   return (counts[digit] || 0) >= 9;
 }
@@ -2599,6 +3221,34 @@ function updateFeedback(message, tone = "") {
 }
 
 function openWinModal() {
+  const session = getCurrentSession();
+  const formattedTime = formatElapsedTime(getElapsedSeconds(session));
+
+  if (winTitle && winCopy) {
+    if (isVersusMode()) {
+      const summary = getVersusScoreSummary(session);
+
+      if (summary.winner === "tie") {
+        winTitle.textContent = "Tie Game";
+        winCopy.textContent = `Final score A ${summary.scores.A} : B ${summary.scores.B}.`;
+      } else {
+        winTitle.textContent = `Player ${summary.winner} Wins`;
+        winCopy.textContent = `Final score A ${summary.scores.A} : B ${summary.scores.B}.`;
+      }
+    } else if (isRankedSoloMode()) {
+      winTitle.textContent = "Ranked Clear";
+      winCopy.textContent = session.rankedRank
+        ? `Finished in ${formattedTime}. You are now #${session.rankedRank} on this puzzle leaderboard.`
+        : hasRankedPlayerName()
+          ? "Finished clean. Submitting your ranked time to the puzzle leaderboard..."
+          : "Finished clean. Enter a player name to submit ranked times.";
+    } else {
+      winTitle.textContent = "Congratulations!";
+      winCopy.textContent = "You filled the whole board without any duplicate conflicts.";
+    }
+  }
+
+  winTime.textContent = `Time: ${formattedTime}`;
   syncTimerDisplay();
   winModal.classList.remove("hidden");
   winModal.setAttribute("aria-hidden", "false");
@@ -2618,10 +3268,18 @@ function updateGameStateAfterBoardChange() {
 
   if (!roundStarted) {
     if (session.hasWon) {
-      state.feedback = `Board complete in ${formatElapsedTime(getElapsedSeconds(session))}.`;
+      state.feedback = isVersusMode()
+        ? getVersusFinishMessage(session)
+        : isRankedSoloMode()
+          ? `Ranked clear in ${formatElapsedTime(getElapsedSeconds(session))}.`
+          : `Board complete in ${formatElapsedTime(getElapsedSeconds(session))}.`;
       updateFeedback(state.feedback, "success");
     } else if (hasSessionProgress(session)) {
-      state.feedback = "Saved puzzle loaded. Switch back anytime to continue this board.";
+      state.feedback = isVersusMode()
+        ? "Saved versus round loaded. Locked cells keep their score impact."
+        : isRankedSoloMode()
+          ? "Saved ranked run loaded. Your leaderboard entry will submit once you finish cleanly."
+          : "Saved puzzle loaded. Switch back anytime to continue this board.";
       updateFeedback(state.feedback);
     } else {
       state.feedback = getPreStartFeedbackMessage();
@@ -2630,6 +3288,48 @@ function updateGameStateAfterBoardChange() {
 
     closeWinModal();
     syncTimerDisplay();
+    return;
+  }
+
+  if (isVersusMode()) {
+    if (session.isPaused) {
+      session.hasWon = false;
+      state.feedback = "Match paused. Resume to keep claiming cells.";
+      updateFeedback(state.feedback);
+      closeWinModal();
+      syncTimerDisplay();
+
+      if (previousHasWon !== session.hasWon) {
+        saveState();
+      }
+      return;
+    }
+
+    const summary = getVersusScoreSummary(session);
+
+    if (summary.claimedCount >= summary.totalClaimable) {
+      finalizeSessionTimer(session);
+      state.feedback = getVersusFinishMessage(session);
+      updateFeedback(state.feedback, "success");
+      syncTimerDisplay();
+
+      if (!session.hasWon) {
+        session.hasWon = true;
+        saveState();
+        openWinModal();
+      }
+      return;
+    }
+
+    session.hasWon = false;
+    state.feedback = `Score A ${summary.scores.A} : B ${summary.scores.B}. ${summary.remainingCells} cells left to claim.`;
+    updateFeedback(state.feedback);
+    closeWinModal();
+    syncTimerDisplay();
+
+    if (previousHasWon !== session.hasWon) {
+      saveState();
+    }
     return;
   }
 
@@ -2660,7 +3360,9 @@ function updateGameStateAfterBoardChange() {
 
   if (boardFilled) {
     finalizeSessionTimer(session);
-    state.feedback = `Board complete in ${formatElapsedTime(session.elapsedSeconds)}.`;
+    state.feedback = isRankedSoloMode()
+      ? `Ranked clear in ${formatElapsedTime(session.elapsedSeconds)}.`
+      : `Board complete in ${formatElapsedTime(session.elapsedSeconds)}.`;
     updateFeedback(state.feedback, "success");
     syncTimerDisplay();
 
@@ -2668,6 +3370,10 @@ function updateGameStateAfterBoardChange() {
       session.hasWon = true;
       saveState();
       openWinModal();
+
+      if (isRankedSoloMode()) {
+        void submitRankedLeaderboardResult(session);
+      }
     }
     return;
   }
@@ -2689,10 +3395,16 @@ function renderControls() {
   const canConfigure = canConfigureCurrentRound(currentSession);
   const currentPlayerReady = state.operator ? isReadyForCurrentSelection(state.operator) : false;
   const resumableSession = isResumableSession(currentSession);
+  const versusSummary = isVersusMode() ? getVersusScoreSummary(currentSession) : null;
+  const rankedMode = isRankedSoloMode();
 
   difficultyControls.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("active", button.dataset.difficulty === state.difficulty);
   });
+
+  roomControlGroup?.toggleAttribute("hidden", rankedMode);
+  operatorGroup?.toggleAttribute("hidden", rankedMode);
+  pageSwitcher?.toggleAttribute("hidden", rankedMode);
 
   if (operatorControls) {
     operatorControls.querySelectorAll("button").forEach((button) => {
@@ -2702,6 +3414,7 @@ function renderControls() {
 
   entryModeControls.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("active", button.dataset.entryMode === state.entryMode);
+    button.disabled = isVersusMode() && button.dataset.entryMode !== "value";
   });
 
   if (statusDifficulty) {
@@ -2752,20 +3465,65 @@ function renderControls() {
     (currentPlayerReady && !roundStarted && !resumableSession)
       || ((roundStarted || resumableSession) && currentSession.isPaused),
   );
-  startGameButton.disabled = !hasPlayableSeat();
+  startGameButton.disabled = !hasPlayableSeat() || (isRankedSoloMode() && !hasRankedPlayerName());
   if (roomPlayerStatus) {
-    roomPlayerStatus.textContent = getRoomPlayerStatusMessage();
+    roomPlayerStatus.textContent = rankedMode ? "1/1" : getRoomPlayerStatusMessage();
     roomPlayerStatus.classList.toggle("ready", !isSinglePlayerMode() && state.roomRoster.length >= 2 && hasPlayableSeat());
+  }
+  if (topbarEyebrow) {
+    topbarEyebrow.textContent = rankedMode ? "Discord Ranked Sudoku" : defaultTopbarEyebrowText;
+  }
+  if (topbarTitle) {
+    topbarTitle.textContent = rankedMode ? "Ranked Solo" : defaultTopbarTitleText;
+  }
+  if (topbarSubtitle) {
+    topbarSubtitle.textContent = rankedMode
+      ? "Single-player time attack on the same exact puzzle. Enter your name, clear cleanly, and track your live rank."
+      : defaultTopbarSubtitleText;
+  }
+  if (boardLegend) {
+    boardLegend.replaceChildren();
+
+    const legendItems = isSinglePlayerMode()
+      ? [
+        { dotClass: "dot-a", label: isRankedSoloMode() ? "Your entries" : "Your entries" },
+        { dotClass: "dot-given", label: "Given digits" },
+      ]
+      : [
+        { dotClass: "dot-a", label: "Player A" },
+        { dotClass: "dot-b", label: "Player B" },
+        { dotClass: "dot-given", label: "Given digits" },
+      ];
+
+    legendItems.forEach((item) => {
+      const legendEntry = document.createElement("span");
+      const legendDot = document.createElement("i");
+      legendDot.className = `dot ${item.dotClass}`;
+      legendDot.setAttribute("aria-hidden", "true");
+      legendEntry.append(legendDot, item.label);
+      boardLegend.appendChild(legendEntry);
+    });
   }
   difficultyControls.querySelectorAll("button").forEach((button) => {
     button.disabled = !hasPlayableSeat() || !canConfigure;
   });
   newPuzzleButton.disabled = !hasPlayableSeat() || !canSwitchPuzzle(currentSession);
-  updateSyncStatus(isSinglePlayerMode() ? "Solo" : state.syncStatus);
+  updateSyncStatus(isRankedSoloMode() ? "Ranked" : isSinglePlayerMode() ? "Solo" : state.syncStatus);
   renderThemeControls();
+  renderRankedPanel();
   syncTimerDisplay();
   helperText.textContent =
-      isSinglePlayerMode()
+      isRankedSoloMode()
+        ? !hasRankedPlayerName()
+          ? "Enter your player name first. Ranked Solo saves your best clear time for this exact puzzle."
+          : !roundStarted
+          ? "Ranked Solo shows this exact puzzle's fastest 10 clears, plus your live time and current rank."
+          : currentSession.isPaused
+          ? "Timer paused. Resume to continue your ranked run."
+          : state.entryMode === "note"
+          ? "Notes mode stays available in ranked runs. Finish cleanly to submit your time."
+          : "Finish the puzzle without conflicts to submit your best time to this puzzle leaderboard."
+        : isSinglePlayerMode()
         ? !roundStarted
           ? "Single mode keeps this board local to you. Choose a difficulty and press Start Game when ready."
           : currentSession.isPaused
@@ -2780,9 +3538,15 @@ function renderControls() {
           ? "Room already has two players. You are watching as a spectator."
           : "Joining room... the first player becomes A, the second becomes B."
         : !roundStarted
-        ? "Both players need to confirm the current difficulty and puzzle before the board unlocks and the timer begins."
+        ? isVersusMode()
+          ? "Both players need to confirm the same puzzle. Once a cell is claimed, it is locked for the rest of the match."
+          : "Both players need to confirm the current difficulty and puzzle before the board unlocks and the timer begins."
         : currentSession.isPaused
-        ? "Timer paused. Press Resume to continue playing."
+        ? isVersusMode()
+          ? "Match paused. Resume to keep claiming cells."
+          : "Timer paused. Press Resume to continue playing."
+        : isVersusMode()
+        ? `Versus score A ${versusSummary?.scores.A ?? 0} : B ${versusSummary?.scores.B ?? 0}. ${versusSummary?.remainingCells ?? 0} cells remain.`
         : state.entryMode === "note"
         ? "Notes mode: select an empty cell, then tap multiple digits to add or remove small pencil marks."
         : "Select an empty cell to open small pencil digits inside the cell, or enter one final number with the keypad.";
@@ -2790,7 +3554,7 @@ function renderControls() {
 
 function renderKeypad() {
   const session = getCurrentSession();
-  const digitCounts = getDigitCounts(session.cells);
+  const digitCounts = isVersusMode() ? {} : getDigitCounts(session.cells);
   const inputsLocked = !isSessionInteractive(session);
   let activeDigitChanged = false;
 
@@ -2812,8 +3576,9 @@ function renderKeypad() {
   const eraseButton = keypad.querySelector("[data-action=\"erase\"]");
 
   if (eraseButton) {
-    eraseButton.disabled = inputsLocked;
-    eraseButton.setAttribute("aria-disabled", inputsLocked ? "true" : "false");
+    const eraseDisabled = inputsLocked || isVersusMode();
+    eraseButton.disabled = eraseDisabled;
+    eraseButton.setAttribute("aria-disabled", eraseDisabled ? "true" : "false");
   }
 
   if (activeDigitChanged) {
@@ -2868,6 +3633,10 @@ function createCellContent(cell, index, options = {}) {
 
     if (cell.owner === "A" || cell.owner === "B") {
       value.classList.add(cell.owner === "B" ? "player-b" : "player-a");
+    }
+
+    if (isVersusMode() && cell.claimCorrect === false) {
+      value.classList.add("wrong-claim");
     }
 
     if (cell.value === state.activeDigit) {
@@ -2945,6 +3714,10 @@ function renderBoard() {
       button.classList.add(cell.owner === "B" ? "player-b" : "player-a");
     }
 
+    if (isVersusMode() && cell.claimCorrect === false) {
+      button.classList.add("wrong-claim");
+    }
+
     if (index === state.selectedIndex) {
       button.classList.add("selected");
     } else if (relatedIndexes.has(index)) {
@@ -2996,6 +3769,10 @@ function renderBoard() {
 }
 
 function setEntryMode(mode) {
+  if (isVersusMode() && mode !== "value") {
+    return;
+  }
+
   state.entryMode = mode;
   renderControls();
 }
@@ -3017,10 +3794,34 @@ function updateCellValue(index, nextValue) {
     return;
   }
 
+  if (isVersusMode()) {
+    if (!nextValue || isFilledClaimCell(cell) || hasCellDuel(cell)) {
+      return;
+    }
+
+    const solution = getPuzzleSolution(session.difficulty, session.puzzleId);
+    const isCorrect = solution[index] === nextValue;
+    cell.value = nextValue;
+    cell.owner = state.operator;
+    cell.peerEdited = false;
+    cell.claimCorrect = isCorrect;
+    cell.duel = null;
+    cell.harmonyAt = null;
+    cell.harmonyDigit = null;
+    cell.lastMoveAt = now;
+    cell.lastMoveBy = state.operator;
+    cell.notes = {};
+
+    saveState();
+    renderBoard();
+    return;
+  }
+
   if (!nextValue) {
     cell.value = "";
     cell.owner = null;
     cell.peerEdited = false;
+    cell.claimCorrect = null;
     cell.duel = null;
     cell.harmonyAt = null;
     cell.harmonyDigit = null;
@@ -3047,6 +3848,7 @@ function updateCellValue(index, nextValue) {
       cell.value = "";
       cell.owner = null;
       cell.peerEdited = false;
+      cell.claimCorrect = null;
       cell.notes = {};
       cell.harmonyAt = null;
       cell.harmonyDigit = null;
@@ -3061,6 +3863,7 @@ function updateCellValue(index, nextValue) {
         cell.value = nextValue;
         cell.owner = null;
         cell.peerEdited = false;
+        cell.claimCorrect = null;
         cell.duel = null;
         cell.notes = {};
         cell.harmonyAt = now;
@@ -3078,6 +3881,7 @@ function updateCellValue(index, nextValue) {
       cell.value = nextValue;
       cell.owner = state.operator;
       cell.peerEdited = Boolean(wasPeerEdited);
+      cell.claimCorrect = null;
       cell.duel = null;
       cell.harmonyAt = null;
       cell.harmonyDigit = null;
@@ -3098,7 +3902,7 @@ function toggleCellNote(index, digit) {
   const session = getCurrentSession();
   const cell = session.cells[index];
 
-  if (!cell || cell.given || cell.value || hasCellDuel(cell)) {
+  if (isVersusMode() || !cell || cell.given || cell.value || hasCellDuel(cell)) {
     return;
   }
 
@@ -3118,7 +3922,7 @@ function clearCell(index) {
   const session = getCurrentSession();
   const cell = session.cells[index];
 
-  if (!cell || cell.given) {
+  if (isVersusMode() || !cell || cell.given) {
     return;
   }
 
@@ -3126,6 +3930,7 @@ function clearCell(index) {
     cell.value = "";
     cell.owner = null;
     cell.peerEdited = false;
+    cell.claimCorrect = null;
   } else if (hasCellDuel(cell)) {
     cell.duel = null;
   } else {
@@ -3157,7 +3962,7 @@ function applyDigitInput(digit) {
   const session = getCurrentSession();
   const cell = session.cells[state.selectedIndex];
 
-  if (!cell || cell.given) {
+  if (!cell || cell.given || (isVersusMode() && isFilledClaimCell(cell))) {
     return;
   }
 
@@ -3236,6 +4041,9 @@ function handleDifficultyClick(event) {
   ensureSession(state.difficulty);
   saveState();
   updateGameStateAfterBoardChange();
+  if (isRankedSoloMode()) {
+    void refreshRankedLeaderboard({ force: true });
+  }
   renderControls();
   renderKeypad();
   renderBoard();
@@ -3261,6 +4069,9 @@ function handleNewPuzzleClick() {
   ensureSession(state.difficulty);
   saveState();
   updateGameStateAfterBoardChange();
+  if (isRankedSoloMode()) {
+    void refreshRankedLeaderboard({ force: true });
+  }
   renderControls();
   renderKeypad();
   renderBoard();
@@ -3268,6 +4079,11 @@ function handleNewPuzzleClick() {
 
 async function handleStartGameClick() {
   if (!hasPlayableSeat() || !state.operator) {
+    return;
+  }
+
+  if (isRankedSoloMode() && !hasRankedPlayerName()) {
+    openRankedProfileModal();
     return;
   }
 
@@ -3296,7 +4112,11 @@ async function handleStartGameClick() {
     currentSession.timerStartedAt = Date.now();
     currentSession.isPaused = false;
     state.gameStart.startedSessionKey = getSessionKey(currentSession.difficulty, currentSession.puzzleId);
-    state.feedback = "Saved puzzle resumed.";
+    state.feedback = isVersusMode()
+      ? "Saved versus match resumed."
+      : isRankedSoloMode()
+        ? "Saved ranked run resumed."
+        : "Saved puzzle resumed.";
     updateFeedback(state.feedback);
     saveState();
     updateGameStateAfterBoardChange();
@@ -3316,9 +4136,14 @@ async function handleStartGameClick() {
     state.sessions[selection.sessionKey] = createSession(selection.difficulty);
     state.sessions[selection.sessionKey].timerStartedAt = Date.now();
     state.gameStart.startedSessionKey = selection.sessionKey;
-    state.feedback = `Solo round started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`;
+    state.feedback = isRankedSoloMode()
+      ? `Ranked run started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`
+      : `Solo round started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`;
     updateFeedback(state.feedback);
     saveState();
+    if (isRankedSoloMode()) {
+      void refreshRankedLeaderboard({ force: true });
+    }
     updateGameStateAfterBoardChange();
     renderControls();
     renderKeypad();
@@ -3339,7 +4164,9 @@ async function handleStartGameClick() {
   if (!hasBothPlayersReady()) {
     state.feedback = state.roomId
       ? "Both Player A and Player B need to be in the room before the game can start."
-      : "Open Room Lobby first and join a co-op room before starting.";
+      : isVersusMode()
+        ? "Open Room Lobby first and join a versus room before starting."
+        : "Open Room Lobby first and join a co-op room before starting.";
     updateFeedback(state.feedback);
     renderControls();
     return;
@@ -3355,10 +4182,14 @@ async function handleStartGameClick() {
     state.sessions[selection.sessionKey] = createSession(selection.difficulty);
     state.sessions[selection.sessionKey].timerStartedAt = Date.now();
     state.gameStart.startedSessionKey = selection.sessionKey;
-    state.feedback = `Round started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`;
+    state.feedback = isVersusMode()
+      ? `Versus match started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}. Claim cells to score.`
+      : `Round started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`;
     updateFeedback(state.feedback);
   } else {
-    state.feedback = "Ready locked. Waiting for the other player to confirm the same puzzle.";
+    state.feedback = isVersusMode()
+      ? "Ready locked. Waiting for the other player to confirm the same puzzle before the match starts."
+      : "Ready locked. Waiting for the other player to confirm the same puzzle.";
     updateFeedback(state.feedback);
   }
 
@@ -3407,6 +4238,13 @@ function handleStorageSync(event) {
   state.entryMode = previousEntryMode;
   state.selectedIndex = null;
   state.activeDigit = null;
+  renderControls();
+  renderKeypad();
+  renderBoard();
+
+  if (isRankedSoloMode()) {
+    void refreshRankedLeaderboard({ force: true });
+  }
 }
 
 function toggleTimerPause() {
@@ -3491,7 +4329,7 @@ function handleKeyboardInput(event) {
     return;
   }
 
-  if (event.shiftKey && /^[1-9]$/.test(event.key) && state.selectedIndex !== null) {
+  if (!isVersusMode() && event.shiftKey && /^[1-9]$/.test(event.key) && state.selectedIndex !== null) {
     const session = getCurrentSession();
     const cell = session.cells[state.selectedIndex];
 
@@ -3513,7 +4351,7 @@ function handleKeyboardInput(event) {
     return;
   }
 
-  if (event.key.toLowerCase() === "n") {
+  if (!isVersusMode() && event.key.toLowerCase() === "n") {
     setEntryMode(state.entryMode === "value" ? "note" : "value");
     return;
   }
@@ -3532,6 +4370,45 @@ function handleWinModalClose() {
 function handleWinModalClick(event) {
   if (event.target === winModal) {
     closeWinModal();
+  }
+}
+
+function handleRankedChangeNameClick() {
+  openRankedProfileModal();
+}
+
+function handleRankedProfileCancelClick() {
+  closeRankedProfileModal();
+
+  if (!hasRankedPlayerName() && isRankedSoloMode()) {
+    resetRoomStateForModeSelection();
+  }
+}
+
+function handleRankedProfileSaveClick() {
+  const nextName = sanitizeRankedPlayerName(rankedPlayerNameInput?.value || "");
+
+  if (!nextName) {
+    state.ranked.status = "Enter your name before starting a ranked run.";
+    renderRankedPanel();
+    rankedPlayerNameInput?.focus();
+    return;
+  }
+
+  state.ranked.playerName = nextName;
+  state.ranked.playerEntry = null;
+  state.ranked.playerRank = null;
+  state.ranked.totalEntries = 0;
+  state.ranked.liveElapsedSeconds = null;
+  writeStoredRankedPlayerName(nextName);
+  closeRankedProfileModal();
+  renderControls();
+  void refreshRankedLeaderboard({ force: true });
+}
+
+function handleRankedProfileModalClick(event) {
+  if (event.target === rankedProfileModal) {
+    handleRankedProfileCancelClick();
   }
 }
 
@@ -3706,7 +4583,7 @@ function handleEnterCreatedRoomClick() {
 }
 
 function releaseRoomSeatOnUnload() {
-  if (!state.roomId || !isCoopMode()) {
+  if (!state.roomId || !isRoomMultiplayerMode()) {
     return;
   }
 
@@ -3718,7 +4595,7 @@ function releaseRoomSeatOnUnload() {
 }
 
 async function leaveCurrentRoom() {
-  if (!state.roomId || !isCoopMode()) {
+  if (!state.roomId || !isRoomMultiplayerMode()) {
     return;
   }
 
@@ -3753,6 +4630,7 @@ function resetRoomStateForModeSelection() {
   removeSessionValue(ROOM_CONTEXT_KEY);
   removeSessionValue(ROOM_NAV_INTENT_KEY);
   closeRoomHubModal();
+  closeRankedProfileModal();
   closeControlsDrawer();
   saveState();
   updateSyncStatus("Choose Mode");
@@ -3800,7 +4678,7 @@ function handlePageLinkClick(event) {
 }
 
 function bootstrap() {
-  updateSyncStatus(isSinglePlayerMode() ? "Solo" : "Choose Room");
+  updateSyncStatus(isRankedSoloMode() ? "Ranked" : isSinglePlayerMode() ? "Solo" : "Choose Room");
   loadState();
   updateRoomAssignment();
   loadVipThemePreference();
@@ -3818,6 +4696,9 @@ function bootstrap() {
   renderRoomHub();
   renderKeypad();
   renderBoard();
+  if (isRankedSoloMode()) {
+    void refreshRankedLeaderboard({ force: true });
+  }
   timerIntervalId = window.setInterval(syncTimerDisplay, 1000);
 
   boardElement.addEventListener("click", handleBoardClick);
@@ -3836,13 +4717,14 @@ function bootstrap() {
   });
   window.addEventListener("storage", handleStorageSync);
   window.addEventListener("visibilitychange", () => {
-    if (isCoopMode() && document.visibilityState === "visible") {
+    if (isRoomMultiplayerMode() && document.visibilityState === "visible") {
       void heartbeatRoom();
     }
   });
   window.addEventListener("beforeunload", releaseRoomSeatOnUnload);
   closeWinModalButton.addEventListener("click", handleWinModalClose);
   winModal.addEventListener("click", handleWinModalClick);
+  rankedProfileModal?.addEventListener("click", handleRankedProfileModalClick);
   roomHubModal?.addEventListener("click", handleRoomHubClick);
   openRoomHubButton?.addEventListener("click", handleOpenRoomHubClick);
   roomHubBackButton?.addEventListener("click", handleRoomHubBackClick);
@@ -3861,6 +4743,15 @@ function bootstrap() {
   roomCreateLinkButton?.addEventListener("click", handleRoomCreateLinkClick);
   enterCreatedRoomButton?.addEventListener("click", handleEnterCreatedRoomClick);
   exitToModeSelectButton?.addEventListener("click", handleExitToModeSelectClick);
+  rankedChangeNameButton?.addEventListener("click", handleRankedChangeNameClick);
+  rankedProfileCancelButton?.addEventListener("click", handleRankedProfileCancelClick);
+  rankedProfileSaveButton?.addEventListener("click", handleRankedProfileSaveClick);
+  rankedPlayerNameInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleRankedProfileSaveClick();
+    }
+  });
   pageLinkButtons.forEach((link) => {
     link.addEventListener("click", handlePageLinkClick);
   });
