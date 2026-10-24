@@ -481,6 +481,454 @@ body[data-controls-open="true"] .control-drawer-toggle {
     backdrop-filter: var(--board-backdrop);
 }
 
+body[data-runtime-kind="discord"] {
+  --discord-layout-gap: 8px;
+  --discord-side-left: clamp(188px, 15vw, 216px);
+  --discord-side-right: clamp(200px, 16vw, 236px);
+  --discord-board-width: min(
+    calc(100dvh - 160px),
+    calc(100vw - var(--discord-side-left) - var(--discord-side-right) - 72px),
+    78dvh
+  );
+  padding: 8px 10px 12px;
+  overflow-y: auto;
+  overflow-x: clip;
+}
+
+body[data-runtime-kind="discord"] .app-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "topbar"
+    "status"
+    "board"
+    "keypad"
+    "controls";
+  gap: var(--discord-layout-gap);
+  align-items: start;
+  width: min(100%, 1680px);
+  max-width: 100%;
+  margin: 0 auto;
+  padding-left: 0;
+}
+
+body[data-runtime-kind="discord"] .topbar {
+  grid-area: topbar;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "eyebrow nav"
+    "title nav";
+  align-items: center;
+  gap: 2px 12px;
+  text-align: left;
+  margin-bottom: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+body[data-runtime-kind="discord"] .topbar .eyebrow {
+  grid-area: eyebrow;
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+
+body[data-runtime-kind="discord"] .topbar h1 {
+  grid-area: title;
+  font-size: clamp(24px, 2.9vw, 34px);
+  line-height: 1;
+}
+
+body[data-runtime-kind="discord"] .topbar .subtitle {
+  display: none;
+}
+
+body[data-runtime-kind="discord"] .topbar .page-switcher {
+  grid-area: nav;
+  margin-top: 0;
+  align-self: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+body[data-runtime-kind="discord"] .topbar .page-link-button {
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+body[data-runtime-kind="discord"] .status-panel,
+body[data-runtime-kind="discord"] .board-section {
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-runtime-kind="discord"] .status-panel {
+  grid-area: status;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+}
+
+body[data-runtime-kind="discord"] .board-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+body[data-runtime-kind="discord"] .status-panel-header {
+  display: contents;
+}
+
+body[data-runtime-kind="discord"] .status-strip {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+body[data-runtime-kind="discord"] .status-strip > div {
+  flex: 0 1 auto;
+  min-height: 30px;
+  padding: 4px 8px;
+  gap: 4px;
+}
+
+body[data-runtime-kind="discord"] .status-strip .status-label,
+body[data-runtime-kind="discord"] .status-strip strong {
+  font-size: 11px;
+}
+
+body[data-runtime-kind="discord"] .status-panel-actions {
+  display: flex;
+  align-items: stretch;
+  margin-left: auto;
+  min-width: 124px;
+}
+
+body[data-runtime-kind="discord"] .status-panel-actions .start-game-button {
+  min-height: 34px;
+  padding: 7px 14px;
+}
+
+body[data-runtime-kind="discord"] .helper-text {
+  display: none;
+}
+
+body[data-runtime-kind="discord"] .game-feedback {
+  order: 3;
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+
+body[data-runtime-kind="discord"] .game-feedback:empty {
+  display: none;
+}
+
+body[data-runtime-kind="discord"] .board-section {
+  display: contents;
+}
+
+body[data-runtime-kind="discord"] .board-panel {
+  grid-area: board;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+}
+
+body[data-runtime-kind="discord"] .keypad-panel {
+  grid-area: keypad;
+  width: min(100%, var(--discord-side-right));
+  justify-self: stretch;
+  padding: 10px;
+  gap: 10px;
+}
+
+body[data-runtime-kind="discord"] .controls-panel {
+  position: static;
+  top: auto;
+  left: auto;
+  grid-area: controls;
+  width: min(100%, var(--discord-side-left));
+  max-height: none;
+  overflow: visible;
+  padding: 10px;
+  margin: 0;
+  border-color: color-mix(in srgb, var(--button-border) 26%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 88%, rgba(255, 255, 255, 0.18)), color-mix(in srgb, var(--panel) 94%, rgba(255, 255, 255, 0.06))),
+    var(--panel-surface);
+  box-shadow:
+    var(--panel-inset),
+    0 10px 24px rgba(17, 17, 17, 0.08);
+  z-index: 1;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body[data-runtime-kind="discord"] .control-drawer-toggle,
+body[data-runtime-kind="discord"] .control-drawer-backdrop {
+  display: none;
+}
+
+body[data-runtime-kind="discord"] .control-group + .control-group {
+  margin-top: 10px;
+}
+
+body[data-runtime-kind="discord"] .controls-panel .control-label,
+body[data-runtime-kind="discord"] .keypad-panel .control-label {
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+body[data-runtime-kind="discord"] .controls-panel .control-label {
+  color: color-mix(in srgb, var(--text) 66%, var(--muted) 34%);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+body[data-runtime-kind="discord"] .legend {
+  gap: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+
+body[data-runtime-kind="discord"] .input-mode-group {
+  margin-bottom: 8px;
+}
+
+body[data-runtime-kind="discord"] .controls-panel .button-row,
+body[data-runtime-kind="discord"] .compact-button-row {
+  gap: 6px;
+}
+
+body[data-runtime-kind="discord"] .controls-panel .chip-button,
+body[data-runtime-kind="discord"] .keypad-panel .chip-button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+body[data-runtime-kind="discord"] .controls-panel .chip-button {
+  border-color: color-mix(in srgb, var(--button-border) 72%, var(--panel-border) 28%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--button-bg) 94%, rgba(255, 255, 255, 0.12)), color-mix(in srgb, var(--button-bg) 88%, rgba(255, 255, 255, 0.04))),
+    var(--button-surface);
+  color: color-mix(in srgb, var(--text) 94%, var(--muted) 6%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 4px 10px rgba(17, 17, 17, 0.07);
+}
+
+body[data-runtime-kind="discord"] .controls-panel .chip-button:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: color-mix(in srgb, var(--button-border) 88%, var(--panel-border) 12%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 16px rgba(17, 17, 17, 0.1);
+}
+
+body[data-runtime-kind="discord"] .controls-panel .chip-button.active {
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  background: color-mix(in srgb, var(--accent) 88%, #ffffff 12%);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 10px 18px rgba(17, 17, 17, 0.16);
+}
+
+body[data-runtime-kind="discord"] .controls-panel .chip-button:disabled,
+body[data-runtime-kind="discord"] .controls-panel .chip-button[aria-disabled="true"] {
+  border-color: color-mix(in srgb, var(--button-border) 24%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, rgba(255, 255, 255, 0.06)), color-mix(in srgb, var(--panel) 96%, rgba(0, 0, 0, 0.04)));
+  color: color-mix(in srgb, var(--muted) 92%, var(--panel) 8%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  opacity: 1;
+  transform: none;
+}
+
+body[data-runtime-kind="discord"] .controls-panel .button-row .chip-button {
+  flex: 1 1 calc(50% - 6px);
+}
+
+body[data-runtime-kind="discord"] .controls-panel .control-exit-group .chip-button {
+  flex-basis: 100%;
+}
+
+body[data-runtime-kind="discord"] .room-summary-card,
+body[data-runtime-kind="discord"] .ranked-summary-card,
+body[data-runtime-kind="discord"] .ranked-leaderboard-card {
+  padding: 10px 11px;
+  border-radius: 14px;
+}
+
+body[data-runtime-kind="discord"] .room-summary-card {
+  gap: 4px;
+  border-color: color-mix(in srgb, var(--button-border) 24%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, rgba(255, 255, 255, 0.12)), color-mix(in srgb, var(--panel) 96%, rgba(0, 0, 0, 0.03))),
+    var(--panel-surface);
+  box-shadow:
+    var(--panel-inset),
+    0 8px 18px rgba(17, 17, 17, 0.06);
+}
+
+body[data-runtime-kind="discord"] .room-summary-card strong,
+body[data-runtime-kind="discord"] .ranked-summary-card strong,
+body[data-runtime-kind="discord"] .ranked-leaderboard-header strong {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 96%, var(--muted) 4%);
+  font-weight: 700;
+}
+
+body[data-runtime-kind="discord"] .room-summary-card span,
+body[data-runtime-kind="discord"] .ranked-summary-card span,
+body[data-runtime-kind="discord"] .ranked-leaderboard-header span,
+body[data-runtime-kind="discord"] .ranked-leaderboard-status,
+body[data-runtime-kind="discord"] .ranked-leaderboard-item-time,
+body[data-runtime-kind="discord"] .ranked-live-stat-label {
+  color: color-mix(in srgb, var(--text) 62%, var(--muted) 38%);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+body[data-runtime-kind="discord"] .status-panel-actions .start-game-button {
+  border-color: color-mix(in srgb, var(--button-border) 78%, transparent);
+}
+
+body[data-runtime-kind="discord"] .status-panel-actions .start-game-button:disabled {
+  border-color: color-mix(in srgb, var(--button-border) 34%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, rgba(255, 255, 255, 0.08)), color-mix(in srgb, var(--panel) 96%, rgba(0, 0, 0, 0.04)));
+  color: color-mix(in srgb, var(--muted) 90%, var(--panel) 10%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  opacity: 1;
+}
+
+body[data-runtime-kind="discord"] .room-player-status {
+  font-weight: 700;
+}
+
+body[data-runtime-kind="discord"] .room-player-status.ready {
+  color: color-mix(in srgb, var(--player-b) 74%, var(--text) 26%);
+}
+
+body[data-runtime-kind="discord"][data-vip-theme="ocean"] .controls-panel,
+body[data-runtime-kind="discord"][data-vip-theme="lolita"] .controls-panel,
+body[data-runtime-kind="discord"][data-vip-theme="forest"] .controls-panel {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, rgba(255, 255, 255, 0.22)), color-mix(in srgb, var(--panel) 98%, rgba(255, 255, 255, 0.08))),
+    var(--panel-surface);
+}
+
+body[data-runtime-kind="discord"][data-vip-theme="hacker"] .controls-panel .chip-button,
+body[data-runtime-kind="discord"][data-vip-theme="hacker"] .room-summary-card,
+body[data-runtime-kind="discord"][data-vip-theme="ocean"] .controls-panel .chip-button,
+body[data-runtime-kind="discord"][data-vip-theme="ocean"] .room-summary-card {
+  box-shadow:
+    var(--panel-inset),
+    0 8px 18px rgba(17, 17, 17, 0.12);
+}
+
+body[data-runtime-kind="discord"] .keypad {
+  gap: 6px;
+}
+
+body[data-runtime-kind="discord"] .chip-button,
+body[data-runtime-kind="discord"] .keypad-button {
+  min-height: 42px;
+}
+
+body[data-runtime-kind="discord"] .keypad-button {
+  min-height: clamp(44px, 4.6vw, 50px);
+  border-radius: 14px;
+  font-size: clamp(17px, 1.75vw, 19px);
+}
+
+body[data-runtime-kind="discord"] .erase-button {
+  font-size: 15px;
+}
+
+body[data-runtime-kind="discord"] .board {
+  width: var(--discord-board-width);
+  max-width: calc(100vw - 24px);
+}
+
+@media (min-width: 1180px) and (min-height: 640px) {
+  body[data-runtime-kind="discord"] {
+    --discord-board-width: min(
+      calc(100dvh - 186px),
+      calc(100vw - var(--discord-side-left) - var(--discord-side-right) - 72px),
+      78dvh
+    );
+  }
+
+  body[data-runtime-kind="discord"] .app-shell {
+    grid-template-columns: var(--discord-side-left) max-content var(--discord-side-right);
+    grid-template-areas:
+      "topbar topbar topbar"
+      "status status status"
+      "controls board keypad";
+    justify-content: center;
+  }
+
+  body[data-runtime-kind="discord"] .controls-panel,
+  body[data-runtime-kind="discord"] .keypad-panel {
+    position: sticky;
+    top: 0;
+  }
+}
+
+@media (max-width: 1179px), (max-height: 639px) {
+  body[data-runtime-kind="discord"] {
+    --discord-board-width: min(calc(100dvh - 160px), calc(100vw - 24px), 78dvh);
+  }
+
+  body[data-runtime-kind="discord"] .topbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "eyebrow"
+      "title"
+      "nav";
+    gap: 2px;
+  }
+
+  body[data-runtime-kind="discord"] .topbar .page-switcher {
+    justify-content: flex-start;
+  }
+
+  body[data-runtime-kind="discord"] .status-strip {
+    min-width: 100%;
+  }
+
+  body[data-runtime-kind="discord"] .status-panel-actions {
+    margin-left: 0;
+  }
+
+  body[data-runtime-kind="discord"] .controls-panel,
+  body[data-runtime-kind="discord"] .keypad-panel {
+    width: 100%;
+  }
+}
+
 .cell {
   appearance: none;
   border: 1px solid var(--soft-line);
