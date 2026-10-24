@@ -649,6 +649,19 @@ function readPersistedState() {
   }
 }
 
+function readPersistedStateByKey(storageKey) {
+  if (!storageKey) {
+    return null;
+  }
+
+  try {
+    return localStorage.getItem(storageKey);
+  } catch (error) {
+    console.warn("Sudoku storage read failed. Falling back to in-memory state.", error);
+    return persistedStorageFallback[storageKey] ?? null;
+  }
+}
+
 function readPreferredVipTheme() {
   try {
     return localStorage.getItem(VIP_THEME_STORAGE_KEY);
@@ -1524,6 +1537,92 @@ function hasExplicitManualRoomEntry() {
   return Boolean(state.roomCode || state.roomId);
 }
 
+function getPersistedStateStorageKeyForMode(mode) {
+  if (mode === "ranked") {
+    return SOLO_RANKED_STORAGE_KEY;
+  }
+
+  if (mode === "single") {
+    return SOLO_STORAGE_KEY;
+  }
+
+  return "";
+}
+
+function hasStoredSessionProgress(session) {
+  return Boolean(
+    Array.isArray(session?.cells)
+      && session.cells.some((cell) =>
+        cell
+        && !cell.given
+        && (
+          cell.value
+          || (cell.duel && (cell.duel.A || cell.duel.B))
+          || Object.keys(cell.notes || {}).length > 0
+        )),
+  );
+}
+
+function getStoredLaunchSelection(parsedState) {
+  if (!parsedState || typeof parsedState !== "object") {
+    return null;
+  }
+
+  const difficulty = Object.prototype.hasOwnProperty.call(difficultyLabels, parsedState.difficulty)
+    ? parsedState.difficulty
+    : "easy";
+  const puzzleIndexes = normalizePuzzleIndexes(parsedState.puzzleIndexes || {});
+  const puzzleConfig = getDailyPuzzleConfigs(difficulty)[puzzleIndexes[difficulty]];
+
+  if (!puzzleConfig?.id) {
+    return null;
+  }
+
+  return {
+    difficulty,
+    sessionKey: getSessionKey(difficulty, puzzleConfig.id),
+  };
+}
+
+function shouldResumeSinglePlayerModeOnLaunch(storedMode) {
+  const storageKey = getPersistedStateStorageKeyForMode(storedMode);
+
+  if (!storageKey) {
+    return false;
+  }
+
+  const rawState = readPersistedStateByKey(storageKey);
+
+  if (!rawState) {
+    return false;
+  }
+
+  try {
+    const parsedState = JSON.parse(rawState);
+    const selection = getStoredLaunchSelection(parsedState);
+
+    if (!selection) {
+      return false;
+    }
+
+    const session = parsedState.sessions?.[selection.sessionKey];
+
+    if (!session || !Array.isArray(session.cells) || session.cells.length !== 81) {
+      return false;
+    }
+
+    const hasProgress = hasStoredSessionProgress(session);
+    const roundStarted = parsedState.gameStart?.startedSessionKey === selection.sessionKey;
+    const resumablePause = session.isPaused === true && hasProgress;
+    const completedBoard = session.hasWon === true;
+
+    return roundStarted || resumablePause || completedBoard || hasProgress;
+  } catch (error) {
+    console.warn("Failed to inspect persisted launch state.", error);
+    return false;
+  }
+}
+
 function shouldPromptModeSelectionOnLaunch() {
   return !hasExplicitManualRoomEntry();
 }
@@ -1531,6 +1630,9 @@ function shouldPromptModeSelectionOnLaunch() {
 function startApp() {
   const crossPageRoomContext = getCrossPageRoomContextOnLaunch();
   const storedMode = readStoredGameMode();
+  const resumableSinglePlayerMode = shouldResumeSinglePlayerModeOnLaunch(storedMode)
+    ? storedMode
+    : null;
 
   if (hasExplicitManualRoomEntry()) {
     state.gameMode = storedMode === "versus" ? "versus" : "coop";
@@ -1550,6 +1652,14 @@ function startApp() {
     closeModeSelectModal();
     bootstrapOnce();
     void resolveExplicitRoomEntryOnLaunch();
+    return;
+  }
+
+  if (resumableSinglePlayerMode) {
+    state.gameMode = resumableSinglePlayerMode;
+    writeStoredGameMode(state.gameMode);
+    closeModeSelectModal();
+    bootstrapOnce();
     return;
   }
 
