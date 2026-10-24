@@ -1,40 +1,30 @@
 # Railway Deploy
 
-## 1. Deploy the room server
+Shudoku production now runs from a single Railway service. `server.js` serves the static pages, JSON APIs, and Socket.IO room service from the same origin.
+
+## 1. Deploy
 
 1. Push this repo to GitHub.
-2. In Railway, create a new project from the GitHub repo.
-3. Select the repo root as the service root.
-4. Railway should detect `package.json` and run `npm start`.
-5. After deploy, open the generated public domain.
-6. Confirm healthcheck works:
-   - `https://<your-railway-domain>/api/health`
+2. Connect the repo root to Railway and enable Auto Deploy for `main`.
+3. Railway should detect `package.json` and run `npm start`.
+4. After deploy, open the generated public domain or bound custom domain.
 
-## 2. Point Netlify to Railway
+## 2. Verify
 
-Edit [config.js](./config.js) and set:
+1. Confirm healthcheck works:
+   - `https://<your-domain>/api/health`
+2. Open the homepage.
+3. Create a multiplayer room in one browser.
+4. Join the same room from another browser.
+5. Confirm board state sync, invite links, and ranked leaderboard requests all stay on the same origin.
 
-```js
-window.SUDOKU_RUNTIME_CONFIG = Object.assign(
-  {
-    roomServerUrl: "https://<your-railway-domain>",
-  },
-  window.SUDOKU_RUNTIME_CONFIG || {},
-);
-```
+## 3. Custom Domain
 
-Then redeploy Netlify.
-
-## 3. Verify
-
-1. Open the Netlify site.
-2. Create a room in one browser.
-3. Join the same room in another browser.
-4. Confirm board state sync works.
-5. Confirm invite links open the Netlify site, not the Railway domain.
+- `config.js` now defaults production traffic to `window.location.origin`, so `https://sudoku.kalis-sweetsecret.com` can point to the same Railway service without changing frontend API or WebSocket URLs.
+- Keep all frontend assets on relative paths such as `./app.js` and `./styles.css` for Discord Activity compatibility.
 
 ## Notes
 
-- Keep the frontend on Netlify.
-- Keep the room server on Railway.
-- The Railway server builds invite links using the Netlify host sent by the frontend.
+- Socket.IO still uses the compatibility path `/api/socket-io.js`.
+- The committed `api/socket-io.js` and `api/health.js` files are retained for compatibility review, but Railway production traffic is handled by `server.js`.
+- Room state and ranked leaderboard data are still stored in process memory and will reset if the Railway instance restarts.

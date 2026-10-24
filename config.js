@@ -3,7 +3,7 @@ const localRoomServerUrl = isLocalPreviewHost
   ? window.location.port === "3100"
     ? window.location.origin
     : `${window.location.protocol}//${window.location.hostname}:3100`
-  : "https://shudoku-production.up.railway.app";
+  : window.location.origin;
 
 window.SUDOKU_RUNTIME_CONFIG = Object.assign(
   {

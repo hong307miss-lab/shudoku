@@ -2449,8 +2449,11 @@ function getRealtimeRoomUnavailableMessage() {
     return "The room client failed to load. Make sure ./vendor/socket.io.min.js is deployed with the site.";
   }
 
-  if (window.location.hostname.endsWith("netlify.app") && !getConfiguredRoomServerUrl()) {
-    return "This Netlify site needs a live room server. Set roomServerUrl in ./config.js to your deployed Node + Socket.IO backend.";
+  if (
+    (window.location.hostname.endsWith("netlify.app") || window.location.hostname.endsWith("vercel.app"))
+    && !getConfiguredRoomServerUrl()
+  ) {
+    return "This static deployment needs roomServerUrl in ./config.js set to your Railway site or custom domain.";
   }
 
   if (getSocketIoFactory()) {
