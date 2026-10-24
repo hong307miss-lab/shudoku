@@ -11,10 +11,14 @@ const VIP_THEME_STORAGE_KEY = "discord-sudoku-vip-theme-v1";
 const RANKED_PLAYER_NAME_STORAGE_KEY = "discord-sudoku-ranked-player-name-v1";
 const DEFAULT_VIP_THEME = "retro";
 const ROOM_CONTEXT_TTL_MS = 45_000;
+const ROOM_PROTOCOL_VERSION = 3;
 let appBootstrapped = false;
 let sharedStateSyncPromise = Promise.resolve();
 let isApplyingRemoteState = false;
 let sharedRevision = 0;
+let roomCellRequestSeq = 0;
+let roundEffectSweepId = null;
+let freezeCountdownTickId = null;
 let sessionStorageFallback = {};
 let discordSdk = null;
 let roomSocket = null;
@@ -193,6 +197,7 @@ const state = {
   heartTimeouts: {},
   heartCelebrations: {},
   syncStatus: "Choose Room",
+  roomProtocolVersion: 0,
   roomId: "",
   roomCode: getRoomJoinCode(),
   roomName: "",
@@ -226,6 +231,18 @@ const state = {
       B: null,
     },
     startedSessionKey: null,
+  },
+  activeRound: {
+    id: "",
+    sessionKey: "",
+    status: "",
+    revision: 0,
+    protocolVersion: 0,
+    effects: [],
+    playerStates: {
+      A: { freezeUntil: 0, freezeRemainingMs: 0 },
+      B: { freezeUntil: 0, freezeRemainingMs: 0 },
+    },
   },
   ranked: {
     playerName: readStoredRankedPlayerName(),
@@ -2235,6 +2252,7 @@ function createEmptyCell() {
     harmonyDigit: null,
     lastMoveAt: null,
     lastMoveBy: null,
+    locked: false,
   };
 }
 
@@ -2284,6 +2302,7 @@ function normalizeCell(cell) {
       harmonyDigit: null,
       lastMoveAt: null,
       lastMoveBy: null,
+      locked: true,
     };
   }
 
@@ -2305,6 +2324,7 @@ function normalizeCell(cell) {
     harmonyDigit,
     lastMoveAt: Number.isFinite(cell.lastMoveAt) ? cell.lastMoveAt : null,
     lastMoveBy: cell.lastMoveBy === "A" || cell.lastMoveBy === "B" ? cell.lastMoveBy : null,
+    locked: cell.locked === true,
   };
 }
 
@@ -2330,6 +2350,7 @@ function createSession(difficulty) {
         given: true,
         value: char,
         owner: "given",
+        peerEdited: false,
         claimCorrect: null,
         notes: {},
         duel: null,
@@ -2337,6 +2358,7 @@ function createSession(difficulty) {
         harmonyDigit: null,
         lastMoveAt: null,
         lastMoveBy: null,
+        locked: true,
       };
     }),
   };
@@ -2415,6 +2437,255 @@ function buildSharedPayload() {
   };
 }
 
+function isAuthoritativeProtocolVersion(protocolVersion) {
+  return Number(protocolVersion) >= 2;
+}
+
+function getDefaultActiveRoundPlayerStates() {
+  return {
+    A: { freezeUntil: 0, freezeRemainingMs: 0 },
+    B: { freezeUntil: 0, freezeRemainingMs: 0 },
+  };
+}
+
+function isAuthoritativeMultiplayerRoundActive() {
+  return Boolean(
+    isRoomMultiplayerMode()
+    && isAuthoritativeProtocolVersion(state.activeRound.protocolVersion)
+    && state.activeRound.id
+    && state.activeRound.sessionKey
+    && state.gameStart.startedSessionKey,
+  );
+}
+
+function hasAuthoritativeMultiplayerRound() {
+  return Boolean(
+    isRoomMultiplayerMode()
+    && isAuthoritativeProtocolVersion(state.activeRound.protocolVersion)
+    && state.activeRound.id
+    && state.activeRound.sessionKey,
+  );
+}
+
+function resetActiveRoundState() {
+  if (roundEffectSweepId) {
+    window.clearTimeout(roundEffectSweepId);
+    roundEffectSweepId = null;
+  }
+
+  if (freezeCountdownTickId) {
+    window.clearTimeout(freezeCountdownTickId);
+    freezeCountdownTickId = null;
+  }
+
+  state.activeRound = {
+    id: "",
+    sessionKey: "",
+    status: "",
+    revision: 0,
+    protocolVersion: 0,
+    effects: [],
+    playerStates: getDefaultActiveRoundPlayerStates(),
+  };
+}
+
+function createRoomRequestId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function pruneActiveRoundEffects(now = Date.now()) {
+  if (!Array.isArray(state.activeRound.effects)) {
+    state.activeRound.effects = [];
+    return;
+  }
+
+  state.activeRound.effects = state.activeRound.effects.filter((effect) => (
+    effect
+    && Number.isFinite(effect.expiresAt)
+    && effect.expiresAt > now
+  ));
+}
+
+function getActiveRoundPlayerState(operator = state.operator) {
+  if (operator !== "A" && operator !== "B") {
+    return { freezeUntil: 0, freezeRemainingMs: 0 };
+  }
+
+  return state.activeRound.playerStates?.[operator] || { freezeUntil: 0, freezeRemainingMs: 0 };
+}
+
+function getSelfFreezeRemainingMs(now = Date.now()) {
+  const playerState = getActiveRoundPlayerState();
+  return Math.max(0, Number(playerState.freezeUntil || 0) - now);
+}
+
+function isSelfFrozen(now = Date.now()) {
+  return getSelfFreezeRemainingMs(now) > 0;
+}
+
+function scheduleFreezeCountdownTick() {
+  if (freezeCountdownTickId) {
+    window.clearTimeout(freezeCountdownTickId);
+    freezeCountdownTickId = null;
+  }
+
+  if (!isSelfFrozen()) {
+    return;
+  }
+
+  freezeCountdownTickId = window.setTimeout(() => {
+    freezeCountdownTickId = null;
+    renderControls();
+    renderKeypad();
+    renderBoard();
+    scheduleFreezeCountdownTick();
+  }, 100);
+}
+
+function scheduleRoundEffectSweep() {
+  if (roundEffectSweepId) {
+    window.clearTimeout(roundEffectSweepId);
+    roundEffectSweepId = null;
+  }
+
+  pruneActiveRoundEffects();
+  scheduleFreezeCountdownTick();
+
+  if (!state.activeRound.effects.length && !isSelfFrozen()) {
+    return;
+  }
+
+  const expiries = state.activeRound.effects
+    .map((effect) => Number(effect.expiresAt))
+    .filter((expiresAt) => Number.isFinite(expiresAt));
+
+  if (isSelfFrozen()) {
+    expiries.push(Date.now() + 100);
+  }
+
+  const nextExpiry = Math.min(...expiries);
+
+  if (!Number.isFinite(nextExpiry)) {
+    return;
+  }
+
+  const delay = Math.max(0, nextExpiry - Date.now()) + 8;
+  roundEffectSweepId = window.setTimeout(() => {
+    roundEffectSweepId = null;
+    pruneActiveRoundEffects();
+    renderBoard();
+    renderControls();
+    renderKeypad();
+    scheduleRoundEffectSweep();
+  }, delay);
+}
+
+function getActiveRoundEffects(now = Date.now()) {
+  pruneActiveRoundEffects(now);
+  return state.activeRound.effects;
+}
+
+function getActiveRoundEffect(index, kind = "") {
+  const effects = getActiveRoundEffects();
+
+  return effects.find((effect) => (
+    effect
+    && effect.cellIndex === index
+    && (!kind || effect.kind === kind)
+  )) || null;
+}
+
+function getFreezeCountdownLabel(milliseconds) {
+  return `${(Math.max(0, milliseconds) / 1000).toFixed(1)}s`;
+}
+
+function buildSessionFromRoundState(roundState) {
+  if (!roundState || typeof roundState !== "object") {
+    return null;
+  }
+
+  const difficulty = roundState.difficulty || state.difficulty;
+  const puzzleId = roundState.puzzleId || getPuzzleConfig(difficulty)?.id;
+  const puzzleIndex = Number.isInteger(roundState.puzzleIndex)
+    ? roundState.puzzleIndex
+    : (state.puzzleIndexes[difficulty] ?? 0);
+  const sessionKey = roundState.sessionKey || getSessionKey(difficulty, puzzleId);
+  const previousSession = state.sessions[sessionKey];
+  const isSameRound = state.activeRound.id && state.activeRound.id === roundState.roundId;
+
+  state.puzzleIndexes[difficulty] = puzzleIndex;
+  const nextSession = createSession(difficulty);
+  nextSession.puzzleId = puzzleId;
+  nextSession.cells = Array.isArray(roundState.cells)
+    ? roundState.cells.map((cell) => normalizeCell({
+      ...cell,
+      duel: null,
+      harmonyAt: null,
+      harmonyDigit: null,
+    }))
+    : nextSession.cells;
+  nextSession.timerStartedAt = isSameRound && previousSession?.timerStartedAt
+    ? previousSession.timerStartedAt
+    : Date.now();
+  nextSession.elapsedSeconds = isSameRound && previousSession ? previousSession.elapsedSeconds : 0;
+  nextSession.isPaused = false;
+  nextSession.hasWon = roundState.status === "completed"
+    || (isSameRound && previousSession ? previousSession.hasWon : false);
+  return {
+    sessionKey,
+    session: nextSession,
+  };
+}
+
+function applyAuthoritativeRoundState(roundState) {
+  if (!roundState || typeof roundState !== "object") {
+    resetActiveRoundState();
+    return;
+  }
+
+  const built = buildSessionFromRoundState(roundState);
+
+  if (!built) {
+    resetActiveRoundState();
+    return;
+  }
+
+  state.difficulty = roundState.difficulty || state.difficulty;
+  if (roundState.status === "active" && roundState.sessionKey) {
+    state.gameStart.startedSessionKey = roundState.sessionKey;
+  }
+  state.sessions[built.sessionKey] = built.session;
+  state.activeRound = {
+    id: roundState.roundId || "",
+    sessionKey: built.sessionKey,
+    status: typeof roundState.status === "string" ? roundState.status : "",
+    revision: Number.isFinite(roundState.revision) ? Number(roundState.revision) : 0,
+    protocolVersion: Number.isFinite(roundState.protocolVersion)
+      ? Number(roundState.protocolVersion)
+      : state.roomProtocolVersion,
+    effects: Array.isArray(roundState.recentEffects)
+      ? roundState.recentEffects.map((effect) => ({ ...effect }))
+      : [],
+    playerStates: roundState.playerStates
+      ? {
+        A: {
+          freezeUntil: Number(roundState.playerStates.A?.freezeUntil || 0),
+          freezeRemainingMs: Math.max(0, Number(roundState.playerStates.A?.freezeRemainingMs || 0)),
+        },
+        B: {
+          freezeUntil: Number(roundState.playerStates.B?.freezeUntil || 0),
+          freezeRemainingMs: Math.max(0, Number(roundState.playerStates.B?.freezeRemainingMs || 0)),
+        },
+      }
+      : getDefaultActiveRoundPlayerStates(),
+  };
+  scheduleRoundEffectSweep();
+}
+
 function applySharedPayload(payload) {
   if (!payload || typeof payload !== "object") {
     return;
@@ -2428,6 +2699,10 @@ function applySharedPayload(payload) {
 }
 
 function syncSharedStateFromStorage() {
+  if (hasAuthoritativeMultiplayerRound()) {
+    return;
+  }
+
   try {
     const raw = readPersistedState();
 
@@ -2877,6 +3152,13 @@ async function roomSocketRequest(eventName, payload = {}) {
       }
 
       if (!response.ok) {
+        if (response.error && /refresh/i.test(response.error)) {
+          state.lastRoomError = response.error;
+          state.feedback = response.error;
+          updateFeedback(state.feedback);
+          renderRoomHub();
+        }
+
         reject(new Error(response.error || "Room request failed."));
         return;
       }
@@ -2911,6 +3193,12 @@ function applyRoomSnapshot(snapshot, options = {}) {
   }
 
   sharedRevision = nextRevision;
+  state.roomProtocolVersion = Number.isFinite(snapshot.protocolVersion) ? Number(snapshot.protocolVersion) : 0;
+
+  if (state.roomProtocolVersion > ROOM_PROTOCOL_VERSION) {
+    state.lastRoomError = "This room needs a newer client version. Refresh to continue.";
+    updateFeedback(state.lastRoomError);
+  }
 
   if (snapshot.room) {
     state.roomId = snapshot.room.roomId || state.roomId;
@@ -2931,7 +3219,12 @@ function applyRoomSnapshot(snapshot, options = {}) {
 
   isApplyingRemoteState = true;
 
-  if (snapshot.sharedState) {
+  const hasAuthoritativeRoundSnapshot = Boolean(
+    isAuthoritativeProtocolVersion(snapshot.protocolVersion)
+    && snapshot.roundState,
+  );
+
+  if (snapshot.sharedState && !hasAuthoritativeRoundSnapshot) {
     applySharedPayload({
       ...snapshot.sharedState,
       roomSeats: snapshot.seats || snapshot.sharedState.roomSeats,
@@ -2942,12 +3235,22 @@ function applyRoomSnapshot(snapshot, options = {}) {
     state.gameStart = normalizeGameStartState(snapshot.lobby || state.gameStart);
   }
 
+  if (hasAuthoritativeRoundSnapshot) {
+    applyAuthoritativeRoundState(snapshot.roundState);
+  } else if (!snapshot.roundState) {
+    resetActiveRoundState();
+  }
+
   state.roomSeats = normalizeRoomSeats(snapshot.seats || state.roomSeats);
   state.roomRoster = buildRoomRosterFromSeats(state.roomSeats);
   cacheStateLocally();
   isApplyingRemoteState = false;
-  syncStartedRoundFromSnapshot(previousStartedSessionKey);
-  syncHarmonyEffects();
+  if (!hasAuthoritativeRoundSnapshot) {
+    syncStartedRoundFromSnapshot(previousStartedSessionKey);
+  }
+  if (!hasAuthoritativeMultiplayerRound()) {
+    syncHarmonyEffects();
+  }
   updateRoomAssignment();
   updateSyncStatus(
     snapshot.playerCount >= 2
@@ -3046,6 +3349,10 @@ async function requestRoomRoundStart(selection) {
 }
 
 async function persistSharedState() {
+  if (hasAuthoritativeMultiplayerRound()) {
+    return;
+  }
+
   if (!isRoomMultiplayerMode() || !state.roomId) {
     return;
   }
@@ -3076,9 +3383,33 @@ async function persistSharedState() {
 function saveState() {
   cacheStateLocally();
 
-  if (isRoomMultiplayerMode() && !isApplyingRemoteState) {
+  if (isRoomMultiplayerMode() && !isApplyingRemoteState && !hasAuthoritativeMultiplayerRound()) {
     void persistSharedState();
   }
+}
+
+async function submitAuthoritativeCellChange(index, options = {}) {
+  if (!isAuthoritativeMultiplayerRoundActive() || !state.roomId) {
+    throw new Error("No active authoritative round.");
+  }
+
+  const action = String(options.action || "set").trim().toLowerCase();
+  const session = getCurrentSession();
+  const observedCell = session?.cells?.[index];
+  const snapshot = await roomSocketRequest("room:cell_submit", {
+    roundId: state.activeRound.id,
+    baseRoundRevision: state.activeRound.revision,
+    requestId: createRoomRequestId(),
+    clientSeq: ++roomCellRequestSeq,
+    cellIndex: index,
+    action,
+    digit: action === "clear" ? "" : options.digit,
+    observedCellVersion: Number.isInteger(observedCell?.version) ? observedCell.version : 0,
+    observedCellLocked: observedCell?.locked === true,
+  });
+
+  applyRoomSnapshot(snapshot, { force: true });
+  return snapshot;
 }
 
 function ensureSession(difficulty) {
@@ -3255,6 +3586,29 @@ function hasBothPlayersJoined() {
   return state.roomRoster.length >= 2;
 }
 
+function isReadyForSelection(operator, selection) {
+  const normalizedSelection = normalizeReadySelection(selection);
+  const readySelection = state.gameStart.readyBy[operator];
+
+  return Boolean(
+    normalizedSelection
+      && readySelection
+      && readySelection.sessionKey === normalizedSelection.sessionKey
+      && readySelection.puzzleIndex === normalizedSelection.puzzleIndex
+      && readySelection.difficulty === normalizedSelection.difficulty,
+  );
+}
+
+function getReadyCountForSelection(selection) {
+  const normalizedSelection = normalizeReadySelection(selection);
+
+  if (!normalizedSelection) {
+    return 0;
+  }
+
+  return ["A", "B"].filter((operator) => isReadyForSelection(operator, normalizedSelection)).length;
+}
+
 function hasBothPlayersReady() {
   if (isSinglePlayerMode()) {
     return true;
@@ -3264,19 +3618,61 @@ function hasBothPlayersReady() {
 }
 
 function isReadyForCurrentSelection(operator) {
-  const selection = getCurrentSelection();
-  const readySelection = state.gameStart.readyBy[operator];
-
-  return Boolean(
-    readySelection
-      && readySelection.sessionKey === selection.sessionKey
-      && readySelection.puzzleIndex === selection.puzzleIndex
-      && readySelection.difficulty === selection.difficulty,
-  );
+  return isReadyForSelection(operator, getCurrentSelection());
 }
 
 function getReadyCountForCurrentSelection() {
-  return ["A", "B"].filter((operator) => isReadyForCurrentSelection(operator)).length;
+  return getReadyCountForSelection(getCurrentSelection());
+}
+
+function isCompletedAuthoritativeMultiplayerRound() {
+  return Boolean(
+    isRoomMultiplayerMode()
+    && isAuthoritativeProtocolVersion(state.activeRound.protocolVersion)
+    && state.activeRound.id
+    && state.activeRound.sessionKey
+    && state.activeRound.status === "completed",
+  );
+}
+
+function getCompletedRoundReadySelection(operator = state.operator) {
+  if (!isCompletedAuthoritativeMultiplayerRound()) {
+    return null;
+  }
+
+  const queuedSelection = operator
+    ? normalizeReadySelection(state.gameStart.readyBy[operator])
+    : null;
+
+  if (queuedSelection && queuedSelection.sessionKey !== state.activeRound.sessionKey) {
+    return queuedSelection;
+  }
+
+  const difficulty = state.difficulty;
+  const puzzles = getDailyPuzzleConfigs(difficulty);
+
+  if (!puzzles.length) {
+    return null;
+  }
+
+  const currentIndex = state.puzzleIndexes[difficulty] ?? 0;
+  const nextIndex = (currentIndex + 1) % puzzles.length;
+  const config = puzzles[nextIndex];
+
+  if (!config?.id) {
+    return null;
+  }
+
+  return {
+    difficulty,
+    puzzleIndex: nextIndex,
+    puzzleId: config.id,
+    sessionKey: getSessionKey(difficulty, config.id),
+  };
+}
+
+function getMultiplayerReadySelection(operator = state.operator) {
+  return getCompletedRoundReadySelection(operator) || getCurrentSelection();
 }
 
 function isCurrentRoundStarted(session = getCurrentSession()) {
@@ -3305,6 +3701,10 @@ function getCurrentRoundStatus(session = getCurrentSession()) {
   }
 
   if (isCurrentRoundStarted(session)) {
+    if (isVersusMode() && isSelfFrozen()) {
+      return `Frozen ${getFreezeCountdownLabel(getSelfFreezeRemainingMs())}`;
+    }
+
     return "Live";
   }
 
@@ -3480,6 +3880,14 @@ function syncTimerDisplay() {
 }
 
 function getCurrentSession() {
+  const activeSessionKey = typeof state.activeRound.sessionKey === "string"
+    ? state.activeRound.sessionKey
+    : "";
+
+  if (activeSessionKey && state.sessions[activeSessionKey]) {
+    return state.sessions[activeSessionKey];
+  }
+
   return ensureSession(state.difficulty);
 }
 
@@ -3526,7 +3934,11 @@ function syncStartedRoundFromSnapshot(previousStartedSessionKey) {
 }
 
 function isSessionInteractive(session = getCurrentSession()) {
-  return hasPlayableSeat() && isCurrentRoundStarted(session) && !session.hasWon && !session.isPaused;
+  return hasPlayableSeat()
+    && isCurrentRoundStarted(session)
+    && !session.hasWon
+    && !session.isPaused
+    && !isSelfFrozen();
 }
 
 function getCellKey(index, session = getCurrentSession()) {
@@ -3960,7 +4372,10 @@ function renderControls() {
   const currentSession = getCurrentSession();
   const roundStarted = isCurrentRoundStarted(currentSession);
   const canConfigure = canConfigureCurrentRound(currentSession);
-  const currentPlayerReady = state.operator ? isReadyForCurrentSelection(state.operator) : false;
+  const readySelection = !isSinglePlayerMode()
+    ? getMultiplayerReadySelection(state.operator)
+    : getCurrentSelection();
+  const currentPlayerReady = state.operator ? isReadyForSelection(state.operator, readySelection) : false;
   const resumableSession = isResumableSession(currentSession);
   const versusSummary = isVersusMode() ? getVersusScoreSummary(currentSession) : null;
   const rankedMode = isRankedSoloMode();
@@ -4006,7 +4421,9 @@ function renderControls() {
   }
   newPuzzleButton.textContent = `New Puzzle ${state.puzzleIndexes[state.difficulty] + 1}/${getAvailablePuzzleCount(state.difficulty)}`;
   startGameButton.textContent = currentSession.hasWon
-    ? "Next Round"
+    ? !isSinglePlayerMode() && isCompletedAuthoritativeMultiplayerRound() && !state.gameStart.startedSessionKey && currentPlayerReady
+      ? "Ready Locked"
+      : "Next Round"
     : resumableSession
       ? "Resume"
     : roundStarted
@@ -4125,6 +4542,8 @@ function renderControls() {
         ? isVersusMode()
           ? "Match paused. Resume to keep claiming cells."
           : "Timer paused. Press Resume to continue playing."
+        : isVersusMode() && isSelfFrozen()
+        ? `Bomb hit. Your inputs unlock in ${getFreezeCountdownLabel(getSelfFreezeRemainingMs())}.`
         : isVersusMode()
         ? `Versus score A ${versusSummary?.scores.A ?? 0} : B ${versusSummary?.scores.B ?? 0}. ${versusSummary?.remainingCells ?? 0} cells remain.`
         : state.entryMode === "note"
@@ -4170,6 +4589,7 @@ function createCellContent(cell, index, options = {}) {
   const { activeDigitTone = null } = options;
   const content = document.createElement("div");
   content.className = "cell-content";
+  const heartEffect = isAuthoritativeMultiplayerRoundActive() ? getActiveRoundEffect(index, "coop_heart") : null;
   const isSelectedEmpty = index === state.selectedIndex && !cell.value && !cell.given && !hasCellDuel(cell);
 
   if (hasCellDuel(cell)) {
@@ -4207,7 +4627,7 @@ function createCellContent(cell, index, options = {}) {
     value.className = "cell-value";
     value.textContent = cell.value;
 
-    if (cell.harmonyAt && cell.harmonyDigit === cell.value) {
+    if ((cell.harmonyAt && cell.harmonyDigit === cell.value) || (heartEffect && heartEffect.digit === cell.value)) {
       value.classList.add("harmony");
     }
 
@@ -4325,6 +4745,10 @@ function renderBoard() {
       button.classList.add("exploding");
     }
 
+    const heartEffect = isAuthoritativeMultiplayerRoundActive() ? getActiveRoundEffect(index, "coop_heart") : null;
+    const clashEffect = isAuthoritativeMultiplayerRoundActive() ? getActiveRoundEffect(index, "coop_clash") : null;
+    const versusContestEffect = isAuthoritativeMultiplayerRoundActive() ? getActiveRoundEffect(index, "versus_contest") : null;
+
       button.appendChild(createCellContent(cell, index, { activeDigitTone }));
 
     if (state.explodingCells[getCellKey(index, session)]) {
@@ -4339,6 +4763,34 @@ function renderBoard() {
       heart.className = "cell-heart";
       heart.textContent = "💖";
       button.appendChild(heart);
+    }
+
+    if (heartEffect) {
+      const heart = document.createElement("span");
+      heart.className = "cell-heart";
+      heart.textContent = "💖";
+      button.appendChild(heart);
+    }
+
+    if (clashEffect) {
+      const clash = document.createElement("span");
+      clash.className = "cell-clash";
+      clash.textContent = "⚡";
+      button.appendChild(clash);
+    }
+
+    if (versusContestEffect) {
+      const victory = document.createElement("span");
+      victory.className = "cell-versus-peace";
+      victory.textContent = "✌️";
+      victory.setAttribute("aria-hidden", "true");
+      button.appendChild(victory);
+
+      const bomb = document.createElement("span");
+      bomb.className = "cell-versus-bomb";
+      bomb.textContent = "💣";
+      bomb.setAttribute("aria-hidden", "true");
+      button.appendChild(bomb);
     }
 
     boardElement.appendChild(button);
@@ -4365,6 +4817,17 @@ function setActiveDigit(digit) {
 
 function updateCellValue(index, nextValue) {
   syncSharedStateFromStorage();
+
+  if (isAuthoritativeMultiplayerRoundActive()) {
+    void submitAuthoritativeCellChange(index, {
+      action: nextValue ? "set" : "clear",
+      digit: nextValue,
+    }).catch((error) => {
+      state.feedback = error.message || "Failed to submit cell.";
+      updateFeedback(state.feedback);
+    });
+    return;
+  }
 
   const session = getCurrentSession();
   const cell = session.cells[index];
@@ -4479,6 +4942,17 @@ function updateCellValue(index, nextValue) {
 function toggleCellNote(index, digit) {
   syncSharedStateFromStorage();
 
+  if (isAuthoritativeMultiplayerRoundActive()) {
+    void submitAuthoritativeCellChange(index, {
+      action: "note_toggle",
+      digit,
+    }).catch((error) => {
+      state.feedback = error.message || "Failed to update notes.";
+      updateFeedback(state.feedback);
+    });
+    return;
+  }
+
   const session = getCurrentSession();
   const cell = session.cells[index];
 
@@ -4498,6 +4972,20 @@ function toggleCellNote(index, digit) {
 
 function clearCell(index) {
   syncSharedStateFromStorage();
+
+  if (isAuthoritativeMultiplayerRoundActive()) {
+    if (isVersusMode()) {
+      return;
+    }
+
+    void submitAuthoritativeCellChange(index, {
+      action: "clear",
+    }).catch((error) => {
+      state.feedback = error.message || "Failed to clear cell.";
+      updateFeedback(state.feedback);
+    });
+    return;
+  }
 
   const session = getCurrentSession();
   const cell = session.cells[index];
@@ -4676,6 +5164,73 @@ async function handleStartGameClick() {
     return;
   }
 
+  if (shouldAdvanceToNextRound && isCompletedAuthoritativeMultiplayerRound() && !isSinglePlayerMode()) {
+    await refreshRoomSnapshot();
+    currentSession = getCurrentSession();
+
+    if (!isCompletedAuthoritativeMultiplayerRound()) {
+      renderControls();
+      renderKeypad();
+      renderBoard();
+      return;
+    }
+
+    if (!hasBothPlayersJoined()) {
+      state.feedback = "Both players need to be in the room before the next round can be readied.";
+      updateFeedback(state.feedback);
+      renderControls();
+      return;
+    }
+
+    const selection = getMultiplayerReadySelection(state.operator);
+
+    if (!selection) {
+      state.feedback = "No next-round puzzle is available right now.";
+      updateFeedback(state.feedback, "error");
+      renderControls();
+      return;
+    }
+
+    state.selectedIndex = null;
+    state.activeDigit = null;
+
+    if (!isReadyForSelection(state.operator, selection)) {
+      await updateRoomReadySelection(selection);
+      if (isAuthoritativeMultiplayerRoundActive() || isCurrentRoundStarted(getCurrentSession())) {
+        renderControls();
+        renderKeypad();
+        renderBoard();
+        return;
+      }
+
+      state.feedback = isVersusMode()
+        ? "Next round ready locked. Waiting for the other player to confirm the same puzzle before the match starts."
+        : "Next round ready locked. Waiting for the other player to confirm the same puzzle.";
+      updateFeedback(state.feedback);
+      renderControls();
+      renderKeypad();
+      renderBoard();
+      return;
+    }
+
+    if (getReadyCountForSelection(selection) < 2) {
+      await updateRoomReadySelection(null);
+      state.feedback = "Next round ready cleared. Pick your puzzle and press Ready again when both players agree.";
+      updateFeedback(state.feedback);
+      renderControls();
+      renderKeypad();
+      renderBoard();
+      return;
+    }
+
+    state.feedback = "Both players are locked in. Waiting for the server to start the next round...";
+    updateFeedback(state.feedback);
+    renderControls();
+    renderKeypad();
+    renderBoard();
+    return;
+  }
+
   if (shouldAdvanceToNextRound) {
     const puzzles = getDailyPuzzleConfigs(state.difficulty);
     const currentIndex = state.puzzleIndexes[state.difficulty] ?? 0;
@@ -4758,9 +5313,12 @@ async function handleStartGameClick() {
 
   if (!isReadyForCurrentSelection(state.operator)) {
     await updateRoomReadySelection(selection);
-      if (isCurrentRoundStarted(getCurrentSession())) {
-        return;
-      }
+    if (isAuthoritativeMultiplayerRoundActive() || isCurrentRoundStarted(getCurrentSession())) {
+      renderControls();
+      renderKeypad();
+      renderBoard();
+      return;
+    }
 
     state.feedback = isVersusMode()
       ? "Ready locked. Waiting for the other player to confirm the same puzzle before the match starts."
@@ -5197,6 +5755,7 @@ function resetRoomStateForModeSelection() {
   resetCurrentRoundGate();
   resetCurrentSelectionSession();
   state.gameMode = null;
+  state.roomProtocolVersion = 0;
   state.roomId = "";
   state.roomCode = "";
   state.roomName = "";
@@ -5210,10 +5769,12 @@ function resetRoomStateForModeSelection() {
   state.roomHubView = "entry";
   state.roomRoster = [];
   state.roomSeats = normalizeRoomSeats();
+  resetActiveRoundState();
   state.operator = null;
   state.selectedIndex = null;
   state.activeDigit = null;
   sharedRevision = 0;
+  roomCellRequestSeq = 0;
   clearStoredGameMode();
   writeStoredOperator(null);
   removeSessionValue(ROOM_CONTEXT_KEY);

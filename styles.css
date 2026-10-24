@@ -1132,6 +1132,53 @@ body[data-runtime-kind="discord"] .board {
   animation: cell-heart-pop 1s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
 }
 
+.cell-clash {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(24px, 4.2vw, 42px);
+  pointer-events: none;
+  color: var(--danger-text);
+  text-shadow:
+    0 0 12px rgba(255, 129, 64, 0.5),
+    0 0 20px rgba(255, 76, 76, 0.28);
+  animation: cell-clash-pop 0.9s cubic-bezier(0.22, 0.88, 0.34, 1) forwards;
+}
+
+.cell-versus-peace,
+.cell-versus-bomb {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  pointer-events: none;
+  font-size: clamp(13px, 2vw, 18px);
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6px 14px rgba(17, 17, 17, 0.12);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.cell-versus-peace {
+  top: 3px;
+  right: 3px;
+  animation: cell-contest-badge-in 0.72s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+
+.cell-versus-bomb {
+  right: 3px;
+  bottom: 3px;
+  animation: cell-contest-badge-in 0.72s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+
 @keyframes cell-explode {
   0% {
     opacity: 0;
@@ -1178,6 +1225,55 @@ body[data-runtime-kind="discord"] .board {
   100% {
     opacity: 0;
     transform: scale(1.72);
+  }
+}
+
+@keyframes cell-clash-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.42) rotate(-10deg);
+  }
+
+  26% {
+    opacity: 1;
+    transform: scale(1.28) rotate(8deg);
+  }
+
+  60% {
+    opacity: 0.92;
+    transform: scale(1.04) rotate(-4deg);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.48) rotate(6deg);
+  }
+}
+
+@keyframes cell-contest-badge-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+
+  28% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-heart,
+  .cell-clash,
+  .cell-versus-peace,
+  .cell-versus-bomb,
+  .cell-value.harmony {
+    animation: none !important;
   }
 }
 

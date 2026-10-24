@@ -1,6 +1,13 @@
 const crypto = require("node:crypto");
 const { URL } = require("node:url");
 const { verifyDiscordActivitySessionToken } = require("./discord-auth");
+const {
+  ROUND_PROTOCOL_VERSION,
+  createAuthoritativeRoundState,
+  resolveAuthoritativeSelection,
+  submitAuthoritativeCell,
+  toPublicRoundState,
+} = require("./room-round-engine");
 
 const ROOM_REJOIN_GRACE_MS = 15_000;
 const ROOM_CAPACITY = 2;
@@ -44,24 +51,18 @@ function sanitizeReadySelection(selection) {
     return null;
   }
 
-  const difficulty = sanitizeString(selection.difficulty || "", 16).toLowerCase();
-  const puzzleId = sanitizeString(selection.puzzleId || "", 64);
   const puzzleIndex = Number(selection.puzzleIndex);
-  const sessionKey = sanitizeString(
-    selection.sessionKey || (difficulty && puzzleId ? `${difficulty}:${puzzleId}` : ""),
-    96,
-  );
+  const resolved = resolveAuthoritativeSelection({
+    difficulty: sanitizeString(selection.difficulty || "", 16).toLowerCase(),
+    puzzleId: sanitizeString(selection.puzzleId || "", 64),
+    puzzleIndex,
+  });
 
-  if (!difficulty || !puzzleId || !sessionKey || !Number.isInteger(puzzleIndex) || puzzleIndex < 0 || puzzleIndex > 9999) {
+  if (!resolved) {
     return null;
   }
 
-  return {
-    difficulty,
-    puzzleId,
-    puzzleIndex,
-    sessionKey,
-  };
+  return resolved;
 }
 
 function sanitizeMatchMode(value) {
@@ -173,6 +174,7 @@ function buildRoomSnapshot(room) {
   normalizeRoomReadyState(room);
 
   return {
+    protocolVersion: ROUND_PROTOCOL_VERSION,
     room: {
       roomId: room.roomId,
       roomCode: room.roomId,
@@ -196,6 +198,7 @@ function buildRoomSnapshot(room) {
     },
     revision: room.revision,
     sharedState: room.sharedState,
+    roundState: room.roundState ? toPublicRoundState(room.roundState) : null,
     seats: room.seats,
     roster: activePlayers.map((player) => ({
       clientId: player.clientId,
@@ -242,6 +245,7 @@ function createRoom(options) {
     updatedAt: Date.now(),
     revision: 0,
     sharedState: null,
+    roundState: null,
     seats: { A: null, B: null },
     readyBy: { A: null, B: null },
     startedSessionKey: null,
@@ -617,20 +621,49 @@ function setPlayerReadySelection(room, socket, selection) {
   }
 
   room.readyBy[player.operator] = sanitizeReadySelection(selection);
-
-  if (
+  const matchedSelection = (
     getRoomPlayerCount(room) >= ROOM_CAPACITY
     && room.readyBy.A
     && room.readyBy.B
     && room.readyBy.A.sessionKey === room.readyBy.B.sessionKey
-  ) {
-    room.startedSessionKey = room.readyBy.A.sessionKey;
+  ) ? room.readyBy.A : null;
+
+  if (matchedSelection) {
+    ensureAuthoritativeRoomRound(room, matchedSelection);
   } else {
     room.startedSessionKey = null;
   }
 
   emitRoomSnapshot(room);
   return buildRoomSnapshot(room);
+}
+
+function ensureAuthoritativeRoomRound(room, selection) {
+  const normalizedSelection = sanitizeReadySelection(selection);
+
+  if (!normalizedSelection) {
+    throw new Error("Choose a valid puzzle before starting the round.");
+  }
+
+  if (
+    room.roundState
+    && room.roundState.status === "active"
+    && room.roundState.sessionKey === normalizedSelection.sessionKey
+  ) {
+    room.startedSessionKey = normalizedSelection.sessionKey;
+    return room.roundState;
+  }
+
+  if (room.roundState && room.roundState.status === "active") {
+    throw new Error("A room round is already active.");
+  }
+
+  room.startedSessionKey = normalizedSelection.sessionKey;
+  room.roundState = createAuthoritativeRoundState({
+    matchMode: room.matchMode,
+    selection: normalizedSelection,
+  });
+  return room.roundState;
 }
 
 function startRoomRound(room, socket, selection) {
@@ -664,9 +697,17 @@ function startRoomRound(room, socket, selection) {
     throw new Error("Your current puzzle does not match the ready-checked room puzzle.");
   }
 
-  room.startedSessionKey = normalizedSelection.sessionKey;
+  ensureAuthoritativeRoomRound(room, normalizedSelection);
   emitRoomSnapshot(room);
   return buildRoomSnapshot(room);
+}
+
+function resetRoomServiceState() {
+  globalThis.__SUDOKU_ROOM_SERVICE_STATE__ = {
+    rooms: new Map(),
+    socketRoomIndex: new Map(),
+    io: null,
+  };
 }
 
 function attachRoomSocketHandlers(io) {
@@ -795,6 +836,16 @@ function attachRoomSocketHandlers(io) {
 
         const room = rooms.get(roomId);
         upsertPlayerInRoom(room, socket, payload);
+
+        if (room.roundState) {
+          callback({
+            ok: false,
+            error: `This multiplayer round uses protocol v${ROUND_PROTOCOL_VERSION}. Refresh to continue.`,
+            snapshot: buildRoomSnapshot(room),
+          });
+          return;
+        }
+
         const baseRevision = Number(payload.baseRevision);
 
         if (Number.isFinite(baseRevision) && baseRevision < room.revision) {
@@ -823,6 +874,63 @@ function attachRoomSocketHandlers(io) {
         callback({ ok: true, snapshot: buildRoomSnapshot(room) });
       } catch (error) {
         callback({ ok: false, error: error.message || "State sync failed." });
+      }
+    });
+
+    socket.on("room:cell_submit", (payload = {}, callback = () => {}) => {
+      try {
+        const { rooms, socketRoomIndex } = getRoomServiceState();
+        const roomId = socketRoomIndex.get(socket.id);
+
+        if (!roomId || !rooms.has(roomId)) {
+          throw new Error("Room not found.");
+        }
+
+        const room = rooms.get(roomId);
+        upsertPlayerInRoom(room, socket, payload);
+
+        if (!room.roundState) {
+          throw new Error("Round is not active.");
+        }
+
+        const player = getSocketPlayer(room, socket);
+
+        if (!player || (player.operator !== "A" && player.operator !== "B")) {
+          throw new Error("Join the room as Player A or Player B before submitting.");
+        }
+
+        const result = submitAuthoritativeCell(room.roundState, {
+          player: player.operator,
+          requestId: payload.requestId,
+          roundId: payload.roundId,
+          cellIndex: payload.cellIndex,
+          digit: payload.digit,
+          action: payload.action,
+          clientSeq: payload.clientSeq,
+          baseRoundRevision: payload.baseRoundRevision,
+          observedCellVersion: payload.observedCellVersion,
+          observedCellLocked: payload.observedCellLocked,
+          receivedAt: Date.now(),
+        });
+
+        room.roundState = result.roundState;
+        room.revision += 1;
+        emitRoomSnapshot(room);
+        callback({
+          ok: true,
+          duplicate: result.duplicate,
+          snapshot: buildRoomSnapshot(room),
+        });
+      } catch (error) {
+        const { rooms, socketRoomIndex } = getRoomServiceState();
+        const roomId = socketRoomIndex.get(socket.id);
+        const room = roomId && rooms.has(roomId) ? rooms.get(roomId) : null;
+
+        callback({
+          ok: false,
+          error: error.message || "Cell submission failed.",
+          snapshot: room ? buildRoomSnapshot(room) : undefined,
+        });
       }
     });
 
@@ -910,6 +1018,7 @@ function getRoomServiceHealth() {
 
   return {
     ok: true,
+    protocolVersion: ROUND_PROTOCOL_VERSION,
     rooms: rooms.size,
     sockets: io?.engine?.clientsCount || 0,
   };
@@ -919,4 +1028,5 @@ module.exports = {
   SOCKET_IO_PATH,
   attachRoomSocketHandlers,
   getRoomServiceHealth,
+  resetRoomServiceState,
 };
