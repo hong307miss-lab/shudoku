@@ -4,6 +4,7 @@ const path = require("node:path");
 const { URL } = require("node:url");
 const { Server } = require("socket.io");
 const { SOCKET_IO_PATH, attachRoomSocketHandlers, getRoomServiceHealth } = require("./room-service");
+const { exchangeDiscordAuthorizationCode, getDiscordAuthConfiguration } = require("./discord-auth");
 const { getLeaderboardHealth, getRankedLeaderboard, submitRankedTime } = require("./leaderboard-service");
 
 const HOST = process.env.HOST || "0.0.0.0";
@@ -127,7 +128,20 @@ const server = http.createServer((req, res) => {
       sendJson(res, 200, {
         ...getRoomServiceHealth(),
         leaderboard: getLeaderboardHealth(),
+        discordAuth: getDiscordAuthConfiguration(),
       }, corsHeaders);
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/discord/auth") {
+      readJsonBody(req)
+        .then(async (payload) => {
+          const result = await exchangeDiscordAuthorizationCode(payload.code);
+          sendJson(res, 200, { ok: true, ...result }, corsHeaders);
+        })
+        .catch((error) => {
+          sendJson(res, 400, { ok: false, error: error.message || "Discord authorization failed." }, corsHeaders);
+        });
       return;
     }
 

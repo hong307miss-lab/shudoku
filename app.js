@@ -1,5 +1,6 @@
 const DISCORD_CLIENT_ID = "1541798952150499349";
 const DISCORD_READY_TIMEOUT_MS = 5000;
+const DISCORD_AUTH_STORAGE_KEY = "discord-sudoku-discord-auth-v1";
 const ROOM_LINK_PARAM = "roomId";
 const ROOM_CLIENT_ID_KEY = "discord-sudoku-room-client-id-v1";
 const ROOM_JOINED_AT_KEY = "discord-sudoku-room-joined-at-v1";
@@ -69,9 +70,11 @@ function isLikelyDiscordFrame() {
 
 async function initRuntimeEnvironment() {
   const DiscordSDKConstructor = getDiscordSdkConstructor();
+  setDiscordAuthState(readStoredDiscordAuth());
 
   if (!DiscordSDKConstructor) {
     state.runtime.kind = "web";
+    clearDiscordRuntimeError();
     revealDiscordActivitySurface();
     startApp();
     return;
@@ -87,6 +90,7 @@ async function initRuntimeEnvironment() {
     ]);
 
     state.runtime.kind = "discord";
+    clearDiscordRuntimeError();
     state.runtime.guildId = discordSdk.guildId || null;
     state.runtime.channelId = discordSdk.channelId || discordSdk.instanceId || "";
     state.runtime.instanceId = discordSdk.instanceId || null;
@@ -102,10 +106,15 @@ async function initRuntimeEnvironment() {
       }
     }
   } catch (error) {
-    console.warn("Discord SDK bootstrap failed. Falling back to web room flow.", error);
+    console.warn("Discord SDK bootstrap failed.", error);
     state.runtime.kind = "web";
     state.runtime.channelId = "";
     state.runtime.channelType = "";
+    if (isLikelyDiscordFrame()) {
+      setDiscordRuntimeError(error?.message || "Discord SDK failed to initialize.");
+    } else {
+      clearDiscordRuntimeError();
+    }
   }
 
   revealDiscordActivitySurface();
@@ -207,6 +216,8 @@ const state = {
     channelType: "",
     guildId: null,
     instanceId: null,
+    auth: getDefaultDiscordAuthState(),
+    lastError: "",
   },
   vipTheme: DEFAULT_VIP_THEME,
   gameStart: {
@@ -234,6 +245,19 @@ let gameModeStorageFallback = null;
 let vipThemeStorageFallback = null;
 let rankedPlayerNameStorageFallback = "";
 let roomHeartbeatId = null;
+
+function getDefaultDiscordAuthState() {
+  return {
+    status: "idle",
+    sessionToken: "",
+    expiresAt: 0,
+    userId: "",
+    displayName: "",
+    username: "",
+    avatarUrl: "",
+    error: "",
+  };
+}
 
 function sanitizeRoomNameInput(value) {
   return String(value || "").trim().toLowerCase().slice(0, 24);
@@ -315,6 +339,203 @@ function removeSessionValue(key) {
     window.sessionStorage.removeItem(key);
   } catch (error) {
     // Ignore storage removal errors and rely on in-memory fallback.
+  }
+}
+
+function readStoredDiscordAuth() {
+  const rawValue = readSessionValue(DISCORD_AUTH_STORAGE_KEY);
+
+  if (!rawValue) {
+    return getDefaultDiscordAuthState();
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    const expiresAt = Number(parsed?.expiresAt);
+
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      removeSessionValue(DISCORD_AUTH_STORAGE_KEY);
+      return getDefaultDiscordAuthState();
+    }
+
+    const userId = String(parsed?.userId || "").trim();
+
+    if (!/^\d{5,32}$/.test(userId)) {
+      removeSessionValue(DISCORD_AUTH_STORAGE_KEY);
+      return getDefaultDiscordAuthState();
+    }
+
+    return {
+      status: "authenticated",
+      sessionToken: typeof parsed?.sessionToken === "string" ? parsed.sessionToken : "",
+      expiresAt,
+      userId,
+      displayName: typeof parsed?.displayName === "string" ? parsed.displayName : "",
+      username: typeof parsed?.username === "string" ? parsed.username : "",
+      avatarUrl: typeof parsed?.avatarUrl === "string" ? parsed.avatarUrl : "",
+      error: "",
+    };
+  } catch (error) {
+    removeSessionValue(DISCORD_AUTH_STORAGE_KEY);
+    return getDefaultDiscordAuthState();
+  }
+}
+
+function persistDiscordAuthState() {
+  const auth = state.runtime.auth || getDefaultDiscordAuthState();
+
+  if (auth.status !== "authenticated" || !auth.sessionToken || !auth.userId || auth.expiresAt <= Date.now()) {
+    removeSessionValue(DISCORD_AUTH_STORAGE_KEY);
+    return;
+  }
+
+  writeSessionValue(DISCORD_AUTH_STORAGE_KEY, JSON.stringify({
+    sessionToken: auth.sessionToken,
+    expiresAt: auth.expiresAt,
+    userId: auth.userId,
+    displayName: auth.displayName || "",
+    username: auth.username || "",
+    avatarUrl: auth.avatarUrl || "",
+  }));
+}
+
+function setDiscordAuthState(nextAuthState) {
+  state.runtime.auth = {
+    ...getDefaultDiscordAuthState(),
+    ...(nextAuthState || {}),
+  };
+  persistDiscordAuthState();
+}
+
+function setDiscordRuntimeError(message) {
+  state.runtime.lastError = String(message || "").trim();
+}
+
+function clearDiscordRuntimeError() {
+  state.runtime.lastError = "";
+}
+
+function getDiscordActivityKey() {
+  return state.runtime.instanceId || state.runtime.channelId || "";
+}
+
+function getCurrentRoomIdentityKey() {
+  if (state.runtime.kind === "discord" && state.runtime.auth?.status === "authenticated" && state.runtime.auth.userId) {
+    return `discord:${state.runtime.auth.userId}`;
+  }
+
+  return `web:${roomClientId}`;
+}
+
+function getCurrentPlayerDisplayName() {
+  if (state.runtime.kind === "discord" && state.runtime.auth?.status === "authenticated") {
+    return state.runtime.auth.displayName || state.runtime.auth.username || "";
+  }
+
+  return "";
+}
+
+async function requestDiscordActivityAuthCode() {
+  if (!discordSdk?.commands?.authorize) {
+    throw new Error("Discord authorize() is unavailable in this client.");
+  }
+
+  const authorizeResult = await discordSdk.commands.authorize({
+    client_id: DISCORD_CLIENT_ID,
+    response_type: "code",
+    state: roomClientId,
+    prompt: "none",
+    scope: ["identify"],
+  });
+
+  const code = typeof authorizeResult?.code === "string" ? authorizeResult.code : "";
+
+  if (!code) {
+    throw new Error("Discord authorize() did not return an authorization code.");
+  }
+
+  return code;
+}
+
+async function ensureDiscordAuthenticated() {
+  if (state.runtime.kind !== "discord") {
+    return getDefaultDiscordAuthState();
+  }
+
+  const cachedAuth = state.runtime.auth || getDefaultDiscordAuthState();
+
+  if (
+    cachedAuth.status === "authenticated"
+    && cachedAuth.sessionToken
+    && cachedAuth.userId
+    && cachedAuth.expiresAt > Date.now() + 5_000
+  ) {
+    return cachedAuth;
+  }
+
+  if (!discordSdk?.commands?.authenticate) {
+    throw new Error("Discord authenticate() is unavailable in this client.");
+  }
+
+  setDiscordAuthState({
+    ...cachedAuth,
+    status: "authorizing",
+    error: "",
+  });
+  clearDiscordRuntimeError();
+
+  try {
+    const code = await requestDiscordActivityAuthCode();
+    const response = await window.fetch("./api/discord/auth", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ code }),
+    });
+    const payload = await response.json();
+
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(payload?.error || "Discord authorization failed.");
+    }
+
+    const accessToken = typeof payload?.accessToken === "string" ? payload.accessToken : "";
+    const authenticated = await discordSdk.commands.authenticate({
+      access_token: accessToken,
+    });
+    const authenticatedUserId = String(authenticated?.user?.id || "").trim();
+    const resolvedUserId = String(payload?.user?.id || "").trim();
+
+    if (authenticatedUserId && resolvedUserId && authenticatedUserId !== resolvedUserId) {
+      throw new Error("Discord user verification failed. Please reopen the Activity and try again.");
+    }
+
+    const nextAuthState = {
+      status: "authenticated",
+      sessionToken: typeof payload?.sessionToken === "string" ? payload.sessionToken : "",
+      expiresAt: Number(payload?.sessionExpiresAt) || 0,
+      userId: resolvedUserId || authenticatedUserId,
+      displayName: String(payload?.user?.displayName || authenticated?.user?.global_name || authenticated?.user?.username || ""),
+      username: String(payload?.user?.username || authenticated?.user?.username || ""),
+      avatarUrl: String(payload?.user?.avatarUrl || ""),
+      error: "",
+    };
+
+    if (!nextAuthState.sessionToken || !nextAuthState.userId || nextAuthState.expiresAt <= Date.now()) {
+      throw new Error("Discord authorization finished without a reusable room session.");
+    }
+
+    setDiscordAuthState(nextAuthState);
+    return state.runtime.auth;
+  } catch (error) {
+    const message = error?.message || "Discord authorization failed.";
+    setDiscordAuthState({
+      ...getDefaultDiscordAuthState(),
+      status: "error",
+      error: message,
+    });
+    setDiscordRuntimeError(message);
+    throw new Error(message);
   }
 }
 
@@ -1139,12 +1360,16 @@ function getRoomSummaryTitle() {
   }
 
   if (!state.roomId) {
+    if (state.runtime.lastError) {
+      return "Discord Status";
+    }
+
     return isDiscordVoiceChannelContext() ? "Discord Room Pending" : "No Room Joined";
   }
 
-  if (state.roomType === "discord-auto") {
+  if (state.roomType === "discord-activity") {
     return state.runtime.channelName
-      ? `Voice Channel · ${state.runtime.channelName}`
+      ? `Discord Activity · ${state.runtime.channelName}`
       : `Discord Channel · ${state.roomId}`;
   }
 
@@ -1178,6 +1403,10 @@ function getRoomSummaryCopy() {
     return state.lastRoomError;
   }
 
+  if (state.runtime.lastError) {
+    return state.runtime.lastError;
+  }
+
   const realtimeRoomUnavailableMessage = getRealtimeRoomUnavailableMessage();
 
   if (realtimeRoomUnavailableMessage) {
@@ -1186,12 +1415,13 @@ function getRoomSummaryCopy() {
 
   if (!state.roomId) {
     return isDiscordVoiceChannelContext()
-      ? "Join the current voice channel board, or create one private room for cross-channel invites."
+      ? "Pick Coop or Versus to create the Discord Activity room for this instance, then let your second player join the same Activity."
       : "Auto-join a waiting room, join with room name and password, or paste a room link.";
   }
 
-  if (state.roomType === "discord-auto") {
-    return "Players inside the same Discord voice channel will land in this shared room automatically.";
+  if (state.roomType === "discord-activity") {
+    const participants = getRoomParticipantSummary();
+    return `${gameModeLabels[state.gameMode] || "Multiplayer"} room linked to this Discord Activity. Player B joins the same room when opening the same Activity instance.${participants ? ` ${participants}.` : ""}`;
   }
 
   if (state.roomInviteUrl) {
@@ -1254,7 +1484,7 @@ function syncRuntimeSurface() {
 
   if (roomHubAutoJoinCopy) {
     roomHubAutoJoinCopy.textContent = isDiscordVoiceChannelContext()
-      ? "If you are in a Discord voice channel, both players in that channel will automatically join the same room."
+      ? "Inside Discord, choosing Coop or Versus now creates or rejoins the shared room for this Activity instance."
       : "If you are on the web or not in a Discord voice channel, this will join any waiting room. If none is waiting, it creates one for you.";
   }
 
@@ -1353,21 +1583,29 @@ async function finalizeRoomJoin(snapshot, options = {}) {
 }
 
 async function joinDiscordAutoRoom() {
+  if (state.runtime.kind !== "discord") {
+    throw new Error("Discord Activity room join is only available inside Discord.");
+  }
+
+  if (!getDiscordActivityKey()) {
+    throw new Error("Discord Activity context is missing. Reopen the Activity from the same channel and try again.");
+  }
+
   updateSyncStatus("Connecting...");
   renderRoomHub();
   const snapshot = await roomSocketRequest("room:auto_join", {
-    clientId: roomClientId,
-    joinedAt: roomJoinedAt,
-    page: getCurrentPageLabel(),
     matchMode: getRoomMatchMode(),
     runtimeKind: "discord",
-    channelId: state.runtime.channelId,
   });
 
   await finalizeRoomJoin(snapshot, {
     roomPassword: "",
-    roomJoinMode: "discord-auto",
+    roomJoinMode: "discord-activity",
   });
+
+  if (snapshot?.room?.matchMode && snapshot.room.matchMode !== getRoomMatchMode()) {
+    state.lastRoomError = `${gameModeLabels[snapshot.room.matchMode] || "Room"} is already active in this Discord Activity.`;
+  }
 }
 
 async function createManualRoom(options = {}) {
@@ -1434,6 +1672,26 @@ async function ensureCoopRoomSelection() {
     stopRoomHeartbeat();
     renderRoomHub();
     return;
+  }
+
+  if (state.runtime.kind === "discord") {
+    try {
+      await joinDiscordAutoRoom();
+      if (routeRoomEntryToLobby()) {
+        return;
+      }
+
+      closeRoomHubModal();
+      renderRoomHub();
+      return;
+    } catch (error) {
+      state.lastRoomError = error.message || "Failed to join the Discord Activity room.";
+      updateSyncStatus("Choose Room");
+      setRoomHubView("entry");
+      openRoomHubModal();
+      renderRoomHub();
+      return;
+    }
   }
 
   setRoomHubView("entry");
@@ -1507,6 +1765,7 @@ function applyGameModeSelection(mode) {
   } else {
     removeSessionValue(ROOM_CONTEXT_KEY);
     closeRoomHubModal();
+    updateRoomAssignment();
     renderRoomHub();
     if (isRankedSoloMode()) {
       void refreshRankedLeaderboard({ force: true });
@@ -1898,7 +2157,7 @@ function normalizeRoomSeatEntry(entry) {
     return null;
   }
 
-  if (!entry.clientId) {
+  if (!entry.clientId && !entry.identityKey) {
     return null;
   }
 
@@ -1906,10 +2165,15 @@ function normalizeRoomSeatEntry(entry) {
   const lastSeenAt = Number(entry.lastSeenAt);
 
   return {
-    clientId: String(entry.clientId),
+    clientId: typeof entry.clientId === "string" ? entry.clientId : "",
+    identityKey: typeof entry.identityKey === "string" ? entry.identityKey : "",
+    identitySource: typeof entry.identitySource === "string" ? entry.identitySource : "",
+    authUserId: typeof entry.authUserId === "string" ? entry.authUserId : "",
     joinedAt: Number.isFinite(joinedAt) && joinedAt > 0 ? joinedAt : Number.MAX_SAFE_INTEGER,
     lastSeenAt: Number.isFinite(lastSeenAt) && lastSeenAt > 0 ? lastSeenAt : 0,
     page: typeof entry.page === "string" ? entry.page : "",
+    displayName: typeof entry.displayName === "string" ? entry.displayName : "",
+    avatarUrl: typeof entry.avatarUrl === "string" ? entry.avatarUrl : "",
   };
 }
 
@@ -1939,6 +2203,23 @@ function buildRoomRosterFromSeats(roomSeats = state.roomSeats, now = Date.now())
       };
     })
     .filter(Boolean);
+}
+
+function getRoomParticipantSummary() {
+  return ["A", "B"]
+    .map((operator) => {
+      const seat = normalizeRoomSeatEntry(state.roomSeats?.[operator]);
+
+      if (!isSeatActive(seat)) {
+        return null;
+      }
+
+      return seat.displayName
+        ? `Player ${operator}: ${seat.displayName}`
+        : `Player ${operator}`;
+    })
+    .filter(Boolean)
+    .join(" | ");
 }
 
 function createEmptyCell() {
@@ -2312,11 +2593,13 @@ function renderThemeControls() {
 }
 
 function getOperatorFromRoomSeats(now = Date.now()) {
-  if (isSeatActive(state.roomSeats.A, now) && state.roomSeats.A.clientId === roomClientId) {
+  const currentIdentityKey = getCurrentRoomIdentityKey();
+
+  if (isSeatActive(state.roomSeats.A, now) && state.roomSeats.A.identityKey === currentIdentityKey) {
     return "A";
   }
 
-  if (isSeatActive(state.roomSeats.B, now) && state.roomSeats.B.clientId === roomClientId) {
+  if (isSeatActive(state.roomSeats.B, now) && state.roomSeats.B.identityKey === currentIdentityKey) {
     return "B";
   }
 
@@ -2436,6 +2719,29 @@ function getInviteBaseProtocol() {
   return window.location.protocol.replace(/:$/, "") || "https";
 }
 
+async function getBaseRoomRequestPayload() {
+  const basePayload = {
+    clientId: roomClientId,
+    joinedAt: roomJoinedAt,
+    page: getCurrentPageLabel(),
+    displayName: getCurrentPlayerDisplayName(),
+  };
+
+  if (state.runtime.kind !== "discord") {
+    return basePayload;
+  }
+
+  const auth = await ensureDiscordAuthenticated();
+  return {
+    ...basePayload,
+    runtimeKind: "discord",
+    authToken: auth.sessionToken,
+    activityKey: getDiscordActivityKey(),
+    channelId: state.runtime.channelId,
+    instanceId: state.runtime.instanceId,
+  };
+}
+
 function getSocketIoFactory() {
   return typeof window.io === "function" ? window.io : null;
 }
@@ -2512,11 +2818,8 @@ async function ensureRoomSocket() {
         if (roomReconnectPending && isRoomMultiplayerMode() && state.roomId) {
           roomReconnectPending = false;
           void roomSocketRequest("room:resume", {
-            clientId: roomClientId,
-            joinedAt: roomJoinedAt,
             roomId: state.roomId,
             password: state.roomPassword,
-            page: getCurrentPageLabel(),
           }).catch(() => {
             updateSyncStatus("Offline");
           });
@@ -2553,6 +2856,7 @@ async function ensureRoomSocket() {
 }
 
 async function roomSocketRequest(eventName, payload = {}) {
+  const identityPayload = await getBaseRoomRequestPayload();
   const socket = await ensureRoomSocket();
 
   return new Promise((resolve, reject) => {
@@ -2561,9 +2865,10 @@ async function roomSocketRequest(eventName, payload = {}) {
     }, 10000);
 
     socket.emit(eventName, {
+      ...identityPayload,
       ...payload,
-        host: getInviteBaseHost(),
-        forwardedProto: getInviteBaseProtocol(),
+      host: getInviteBaseHost(),
+      forwardedProto: getInviteBaseProtocol(),
     }, (response = {}) => {
       window.clearTimeout(timeoutId);
 
@@ -2598,6 +2903,7 @@ function applyRoomSnapshot(snapshot, options = {}) {
   }
 
   const previousPlayerCount = state.roomRoster.length;
+  const previousStartedSessionKey = state.gameStart.startedSessionKey;
   const nextRevision = Number.isFinite(snapshot.revision) ? Number(snapshot.revision) : 0;
 
   if (!options.force && nextRevision < sharedRevision) {
@@ -2629,18 +2935,25 @@ function applyRoomSnapshot(snapshot, options = {}) {
     applySharedPayload({
       ...snapshot.sharedState,
       roomSeats: snapshot.seats || snapshot.sharedState.roomSeats,
+      gameStart: snapshot.lobby || snapshot.sharedState.gameStart,
     });
   } else {
     state.roomSeats = normalizeRoomSeats(snapshot.seats || state.roomSeats);
+    state.gameStart = normalizeGameStartState(snapshot.lobby || state.gameStart);
   }
 
   state.roomSeats = normalizeRoomSeats(snapshot.seats || state.roomSeats);
   state.roomRoster = buildRoomRosterFromSeats(state.roomSeats);
   cacheStateLocally();
   isApplyingRemoteState = false;
+  syncStartedRoundFromSnapshot(previousStartedSessionKey);
   syncHarmonyEffects();
   updateRoomAssignment();
-  updateSyncStatus(snapshot.playerCount >= 2 ? "Live" : "Waiting...");
+  updateSyncStatus(
+    snapshot.playerCount >= 2
+      ? (isCurrentRoundStarted() ? "Live" : getReadyCountForCurrentSelection() === 2 ? "Ready" : "Waiting...")
+      : "Waiting...",
+  );
 
   if (
     previousPlayerCount < 2
@@ -2704,6 +3017,32 @@ async function refreshRoomSnapshot() {
   }
 
   await heartbeatRoom();
+}
+
+async function updateRoomReadySelection(selection) {
+  if (!state.roomId || !isRoomMultiplayerMode()) {
+    throw new Error("Join a multiplayer room before changing ready state.");
+  }
+
+  const snapshot = await roomSocketRequest("room:set_ready", {
+    selection: selection || null,
+  });
+
+  applyRoomSnapshot(snapshot, { force: true });
+  return snapshot;
+}
+
+async function requestRoomRoundStart(selection) {
+  if (!state.roomId || !isRoomMultiplayerMode()) {
+    throw new Error("Join a multiplayer room before starting the round.");
+  }
+
+  const snapshot = await roomSocketRequest("room:start_round", {
+    selection,
+  });
+
+  applyRoomSnapshot(snapshot, { force: true });
+  return snapshot;
 }
 
 async function persistSharedState() {
@@ -2792,9 +3131,67 @@ function getCurrentSelection() {
   };
 }
 
+function getSelectionFromSessionKey(sessionKey) {
+  const normalizedKey = String(sessionKey || "").trim();
+  const separatorIndex = normalizedKey.indexOf(":");
+
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const difficulty = normalizedKey.slice(0, separatorIndex);
+  const puzzleId = normalizedKey.slice(separatorIndex + 1);
+
+  if (!Object.prototype.hasOwnProperty.call(difficultyLabels, difficulty) || !puzzleId) {
+    return null;
+  }
+
+  const puzzleIndex = getDailyPuzzleConfigs(difficulty).findIndex((item) => item?.id === puzzleId);
+
+  if (puzzleIndex < 0) {
+    return null;
+  }
+
+  return {
+    difficulty,
+    puzzleId,
+    puzzleIndex,
+    sessionKey: getSessionKey(difficulty, puzzleId),
+  };
+}
+
 function resetCurrentSelectionSession() {
   const selection = getCurrentSelection();
   state.sessions[selection.sessionKey] = createSession(selection.difficulty);
+}
+
+function startSinglePlayerRound(selection = getCurrentSelection(), options = {}) {
+  const nextSelection = selection || getCurrentSelection();
+  const nextMessage = typeof options.feedback === "string" && options.feedback
+    ? options.feedback
+    : isRankedSoloMode()
+      ? `Ranked run started on ${difficultyLabels[nextSelection.difficulty]} puzzle ${nextSelection.puzzleIndex + 1}.`
+      : `Solo round started on ${difficultyLabels[nextSelection.difficulty]} puzzle ${nextSelection.puzzleIndex + 1}.`;
+
+  state.selectedIndex = null;
+  state.activeDigit = null;
+  state.sessions[nextSelection.sessionKey] = createSession(nextSelection.difficulty);
+  state.sessions[nextSelection.sessionKey].timerStartedAt = Date.now();
+  state.gameStart.readyBy.A = nextSelection;
+  state.gameStart.readyBy.B = null;
+  state.gameStart.startedSessionKey = nextSelection.sessionKey;
+  state.feedback = nextMessage;
+  updateFeedback(state.feedback);
+  saveState();
+
+  if (isRankedSoloMode()) {
+    void refreshRankedLeaderboard({ force: true });
+  }
+
+  updateGameStateAfterBoardChange();
+  renderControls();
+  renderKeypad();
+  renderBoard();
 }
 
 function getVersusClaimableTotal(session = getCurrentSession()) {
@@ -2850,12 +3247,20 @@ function getVersusFinishMessage(session = getCurrentSession()) {
   return `Player ${summary.winner} wins. A ${summary.scores.A} : B ${summary.scores.B}.`;
 }
 
-function hasBothPlayersReady() {
+function hasBothPlayersJoined() {
   if (isSinglePlayerMode()) {
     return true;
   }
 
   return state.roomRoster.length >= 2;
+}
+
+function hasBothPlayersReady() {
+  if (isSinglePlayerMode()) {
+    return true;
+  }
+
+  return hasBothPlayersJoined() && getReadyCountForCurrentSelection() === 2;
 }
 
 function isReadyForCurrentSelection(operator) {
@@ -2912,10 +3317,15 @@ function getCurrentRoundStatus(session = getCurrentSession()) {
   }
 
   if (isVersusMode()) {
-    return hasBothPlayersReady() ? "Face Off" : "Waiting for 2 Players";
+    if (!hasBothPlayersJoined()) {
+      return "Waiting for 2 Players";
+    }
+
+    const readyCount = getReadyCountForCurrentSelection();
+    return readyCount === 2 ? "Face Off" : `${readyCount}/2 Ready`;
   }
 
-  if (!hasBothPlayersReady()) {
+  if (!hasBothPlayersJoined()) {
     return "Waiting for 2 Players";
   }
 
@@ -2951,24 +3361,26 @@ function getPreStartFeedbackMessage() {
       : "Waiting for both players to join this room.";
   }
 
-  if (!hasBothPlayersReady()) {
+  if (!hasBothPlayersJoined()) {
     return isVersusMode()
       ? "Choose a difficulty and puzzle, then wait for both Player A and Player B to join the match."
       : "Choose a difficulty and puzzle, then wait for both Player A and Player B to join.";
   }
 
   if (isVersusMode()) {
-    return "Both players must lock the same puzzle. Each claimed cell is final: correct answers score, wrong answers lose points.";
+    return hasBothPlayersReady()
+      ? "Both players are ready. The server is starting the versus round now."
+      : "Both players must lock the same puzzle. Each claimed cell is final: correct answers score, wrong answers lose points.";
   }
 
   const readyCount = getReadyCountForCurrentSelection();
 
   if (readyCount === 0) {
-    return "Both players must confirm the same puzzle. Press Start Game after agreeing on the current difficulty and puzzle.";
+    return "Both players must confirm the same puzzle. Press Ready after agreeing on the current difficulty and puzzle.";
   }
 
   if (readyCount === 1) {
-    return "One player is ready. The other player needs to confirm the same difficulty and puzzle, then press Start Game.";
+    return "One player is ready. The other player needs to confirm the same difficulty and puzzle, then press Ready.";
   }
 
   return "Both players are ready. Starting the round...";
@@ -3069,6 +3481,48 @@ function syncTimerDisplay() {
 
 function getCurrentSession() {
   return ensureSession(state.difficulty);
+}
+
+function syncStartedRoundFromSnapshot(previousStartedSessionKey) {
+  if (isSinglePlayerMode()) {
+    return;
+  }
+
+  const nextStartedSessionKey = state.gameStart.startedSessionKey;
+
+  if (!nextStartedSessionKey || nextStartedSessionKey === previousStartedSessionKey) {
+    return;
+  }
+
+  const selection = getSelectionFromSessionKey(nextStartedSessionKey);
+
+  if (!selection) {
+    return;
+  }
+
+  state.difficulty = selection.difficulty;
+  state.puzzleIndexes[selection.difficulty] = selection.puzzleIndex;
+
+  const existingSession = state.sessions[selection.sessionKey];
+  const canReuseExistingSession = Boolean(
+    existingSession && (
+      hasSessionProgress(existingSession)
+      || existingSession.elapsedSeconds > 0
+      || existingSession.timerStartedAt
+      || existingSession.isPaused
+      || existingSession.hasWon
+    ),
+  );
+
+  if (!canReuseExistingSession) {
+    state.sessions[selection.sessionKey] = createSession(selection.difficulty);
+    state.sessions[selection.sessionKey].timerStartedAt = Date.now();
+    state.feedback = isVersusMode()
+      ? `Versus match started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}. Claim cells to score.`
+      : `Round started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`;
+    updateFeedback(state.feedback);
+    saveState();
+  }
 }
 
 function isSessionInteractive(session = getCurrentSession()) {
@@ -3510,6 +3964,11 @@ function renderControls() {
   const resumableSession = isResumableSession(currentSession);
   const versusSummary = isVersusMode() ? getVersusScoreSummary(currentSession) : null;
   const rankedMode = isRankedSoloMode();
+  const multiplayerAutoStarting = !isSinglePlayerMode() && hasBothPlayersReady() && !roundStarted && !resumableSession;
+  const canSwitchWaitingRoomToSolo = !isSinglePlayerMode()
+    && !roundStarted
+    && state.roomRoster.length < 2
+    && hasPlayableSeat();
 
   difficultyControls.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("active", button.dataset.difficulty === state.difficulty);
@@ -3554,9 +4013,13 @@ function renderControls() {
       ? currentSession.isPaused
         ? "Resume"
         : "Pause"
-      : currentPlayerReady
-        ? "Ready"
-        : "Start Game";
+        : multiplayerAutoStarting
+          ? "Starting..."
+        : !isSinglePlayerMode() && currentPlayerReady
+          ? "Ready Locked"
+          : !isSinglePlayerMode()
+            ? "Ready"
+            : "Start Game";
   startGameButton.setAttribute(
     "aria-label",
     (roundStarted || resumableSession) && !currentSession.hasWon
@@ -3575,13 +4038,17 @@ function renderControls() {
   );
   startGameButton.classList.toggle(
     "active",
-    (currentPlayerReady && !roundStarted && !resumableSession)
+    (currentPlayerReady && !roundStarted && !resumableSession && !multiplayerAutoStarting)
       || ((roundStarted || resumableSession) && currentSession.isPaused),
   );
-  startGameButton.disabled = !hasPlayableSeat() || (isRankedSoloMode() && !hasRankedPlayerName());
+  startGameButton.disabled = !hasPlayableSeat() || multiplayerAutoStarting || (isRankedSoloMode() && !hasRankedPlayerName());
   if (roomPlayerStatus) {
     roomPlayerStatus.textContent = rankedMode ? "1/1" : getRoomPlayerStatusMessage();
     roomPlayerStatus.classList.toggle("ready", !isSinglePlayerMode() && state.roomRoster.length >= 2 && hasPlayableSeat());
+  }
+  if (exitToModeSelectButton) {
+    exitToModeSelectButton.textContent = canSwitchWaitingRoomToSolo ? "Switch to Solo" : "Exit";
+    exitToModeSelectButton.setAttribute("title", exitToModeSelectButton.textContent);
   }
   if (topbarEyebrow) {
     topbarEyebrow.textContent = rankedMode ? "Discord Ranked Sudoku" : defaultTopbarEyebrowText;
@@ -4274,7 +4741,7 @@ async function handleStartGameClick() {
     return;
   }
 
-  if (!hasBothPlayersReady()) {
+  if (!hasBothPlayersJoined()) {
     state.feedback = state.roomId
       ? "Both Player A and Player B need to be in the room before the game can start."
       : isVersusMode()
@@ -4286,28 +4753,37 @@ async function handleStartGameClick() {
   }
 
   const selection = getCurrentSelection();
-
-  state.gameStart.readyBy[state.operator] = selection;
   state.selectedIndex = null;
   state.activeDigit = null;
 
-  if (getReadyCountForCurrentSelection() === 2) {
-    state.sessions[selection.sessionKey] = createSession(selection.difficulty);
-    state.sessions[selection.sessionKey].timerStartedAt = Date.now();
-    state.gameStart.startedSessionKey = selection.sessionKey;
-    state.feedback = isVersusMode()
-      ? `Versus match started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}. Claim cells to score.`
-      : `Round started on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`;
-    updateFeedback(state.feedback);
-  } else {
+  if (!isReadyForCurrentSelection(state.operator)) {
+    await updateRoomReadySelection(selection);
+      if (isCurrentRoundStarted(getCurrentSession())) {
+        return;
+      }
+
     state.feedback = isVersusMode()
       ? "Ready locked. Waiting for the other player to confirm the same puzzle before the match starts."
       : "Ready locked. Waiting for the other player to confirm the same puzzle.";
     updateFeedback(state.feedback);
+    renderControls();
+    renderKeypad();
+    renderBoard();
+    return;
   }
 
-  saveState();
-  updateGameStateAfterBoardChange();
+  if (!hasBothPlayersReady()) {
+    await updateRoomReadySelection(null);
+    state.feedback = "Ready cleared. Pick your puzzle and press Ready again when both players agree.";
+    updateFeedback(state.feedback);
+    renderControls();
+    renderKeypad();
+    renderBoard();
+    return;
+  }
+
+    state.feedback = "Both players are locked in. Waiting for the server to start the round...";
+  updateFeedback(state.feedback);
   renderControls();
   renderKeypad();
   renderBoard();
@@ -4763,6 +5239,42 @@ function handleExitToModeSelectClick() {
       await leaveCurrentRoom();
     } catch (error) {
       console.warn("Failed to leave current room before exiting.", error);
+    }
+
+    if (isRoomMultiplayerMode() && !isCurrentRoundStarted() && state.roomRoster.length < 2 && hasPlayableSeat()) {
+      disconnectRoomEventStream();
+      stopRoomHeartbeat();
+      resetCurrentRoundGate();
+      sharedRevision = 0;
+      state.roomId = "";
+      state.roomCode = "";
+      state.roomName = "";
+      state.roomType = "";
+      state.roomSource = "";
+      state.roomInviteUrl = "";
+      state.roomCreateLinkReady = false;
+      state.roomPassword = "";
+      state.roomJoinMode = "";
+      state.lastRoomError = "";
+      state.roomHubView = "entry";
+      state.roomRoster = [];
+      state.roomSeats = normalizeRoomSeats();
+      state.operator = null;
+      removeSessionValue(ROOM_CONTEXT_KEY);
+      removeSessionValue(ROOM_NAV_INTENT_KEY);
+      closeRoomHubModal();
+      closeRankedProfileModal();
+      closeControlsDrawer();
+      state.gameMode = "single";
+      writeStoredGameMode("single");
+      updateSyncStatus("Solo");
+      updateRoomAssignment();
+      syncPageLinksWithRoom();
+      syncCurrentUrlWithRoom();
+      startSinglePlayerRound(getCurrentSelection(), {
+        feedback: `Switched to Solo. Round started on ${difficultyLabels[state.difficulty]} puzzle ${state.puzzleIndexes[state.difficulty] + 1}.`,
+      });
+      return;
     }
 
     resetRoomStateForModeSelection();
