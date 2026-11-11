@@ -27,180 +27,183 @@ body[data-vvip-theme] {
 }
 
 /* ---------------------------------------------------------------- *
- * A. Moonlight Conservatory
+ * A. Moonlight Conservatory (月光玻璃温室) — ice blue / silver white / soft moonlight
  * ---------------------------------------------------------------- */
 
 body[data-vip-theme="vvip-moonlight"] {
-  --bg: #0d1e25;
-  --panel: rgba(238, 248, 243, 0.72);
-  --line: #2b4d43;
-  --soft-line: #7fa094;
-  --text: #15251e;
-  --muted: #4b6a5e;
-  --given: #6f8a7d;
-  --player-a: #2b5d86;
-  --player-b: #0f8a6c;
-  --accent: #2f7a5e;
-  --selected: #cfe8da;
-  --related: #dcefe4;
-  --matched-digit: #b5dcc6;
-  --matched-digit-text: #2c5645;
-  --shadow: 0 22px 46px rgba(5, 22, 19, 0.34);
-  --button-bg: rgba(246, 252, 249, 0.7);
-  --button-border: #4e7566;
-  --board-bg: rgba(246, 252, 249, 0.64);
-  --cell-bg: rgba(255, 255, 255, 0.86);
-  --feedback-surface: rgba(238, 248, 243, 0.68);
+  --bg: #0a1a28;
+  --panel: rgba(233, 245, 253, 0.6);
+  --line: #2d5170;
+  --soft-line: #93b2c9;
+  --text: #102331;
+  --muted: #4c6b82;
+  --given: #7d9bb2;
+  --player-a: #1f5f96;
+  --player-b: #0f7b85;
+  --accent: #3f8fc4;
+  --selected: #d8edfb;
+  --related: #e6f3fc;
+  --matched-digit: #c3e2f6;
+  --matched-digit-text: #1d4b6b;
+  --shadow: 0 22px 46px rgba(4, 18, 32, 0.38);
+  --button-bg: rgba(245, 251, 255, 0.62);
+  --button-border: #5b8db2;
+  --board-bg: rgba(244, 251, 255, 0.56);
+  --cell-bg: rgba(255, 255, 255, 0.88);
+  --feedback-surface: rgba(233, 245, 253, 0.62);
   --page-overlay:
-    radial-gradient(circle at 50% 14%, rgba(255, 244, 214, 0.14), transparent 26%),
-    linear-gradient(180deg, rgba(6, 20, 24, 0.34), rgba(4, 14, 18, 0.56));
+    radial-gradient(circle at 50% 12%, rgba(214, 236, 255, 0.18), transparent 28%),
+    linear-gradient(180deg, rgba(6, 18, 32, 0.34), rgba(3, 10, 20, 0.6));
   --page-ambient:
-    radial-gradient(circle at 12% 82%, rgba(120, 190, 165, 0.16), transparent 24%),
-    radial-gradient(circle at 86% 22%, rgba(158, 214, 190, 0.12), transparent 22%);
-  --panel-border: rgba(78, 117, 102, 0.22);
+    radial-gradient(circle at 14% 78%, rgba(150, 205, 240, 0.18), transparent 24%),
+    radial-gradient(circle at 86% 22%, rgba(198, 224, 255, 0.14), transparent 22%);
+  --panel-border: rgba(120, 168, 202, 0.28);
   --panel-surface:
-    linear-gradient(180deg, rgba(248, 253, 250, 0.76), rgba(226, 240, 233, 0.6)),
-    radial-gradient(circle at top center, rgba(255, 255, 255, 0.24), transparent 46%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 0 0 1px rgba(145, 177, 160, 0.08);
-  --status-surface: linear-gradient(180deg, rgba(245, 251, 247, 0.74), rgba(224, 239, 231, 0.58));
+    linear-gradient(180deg, rgba(250, 253, 255, 0.68), rgba(226, 240, 250, 0.48)),
+    radial-gradient(circle at top center, rgba(255, 255, 255, 0.28), transparent 48%);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.56), inset 0 0 0 1px rgba(160, 200, 230, 0.12);
+  --status-surface: linear-gradient(180deg, rgba(246, 252, 255, 0.66), rgba(224, 239, 249, 0.46));
+  /* Silver-blue board frame. */
   --board-frame:
-    linear-gradient(145deg, #6f8f7d, #33513f),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08) 3px, rgba(46, 74, 60, 0.08) 3px, rgba(46, 74, 60, 0.08) 10px);
-  --board-frame-shadow: inset 0 1px 0 rgba(240, 255, 249, 0.24), 0 20px 36px rgba(5, 24, 20, 0.32);
-  --board-inner-shadow: inset 0 0 0 2px rgba(244, 253, 248, 0.18);
+    linear-gradient(145deg, #dcebf7, #7ba3c4),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14) 3px, rgba(60, 110, 150, 0.08) 3px, rgba(60, 110, 150, 0.08) 10px);
+  --board-frame-shadow: inset 0 1px 0 rgba(244, 252, 255, 0.4), 0 20px 38px rgba(4, 18, 32, 0.36);
+  --board-inner-shadow: inset 0 0 0 2px rgba(240, 250, 255, 0.24);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(238, 248, 242, 0.84)),
-    radial-gradient(circle at bottom right, rgba(199, 232, 215, 0.34), transparent 48%);
-  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
-  --button-surface: linear-gradient(180deg, rgba(252, 255, 253, 0.92), rgba(229, 242, 235, 0.78));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 4px 12px rgba(12, 45, 36, 0.16);
-  --modal-surface: linear-gradient(180deg, rgba(250, 254, 252, 0.97), rgba(230, 242, 236, 0.95));
-  --modal-border: rgba(78, 117, 102, 0.24);
-  --heading-glow: 0 0 22px rgba(191, 236, 216, 0.34);
-  --panel-backdrop: blur(10px) saturate(116%);
-  --button-backdrop: blur(6px);
-  --board-backdrop: blur(8px);
-  --status-backdrop: blur(8px);
-  --feedback-backdrop: blur(6px);
-  --modal-backdrop-filter: blur(14px);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(238, 247, 254, 0.84)),
+    radial-gradient(circle at bottom right, rgba(200, 228, 248, 0.34), transparent 48%);
+  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  --button-surface: linear-gradient(180deg, rgba(252, 254, 255, 0.9), rgba(228, 241, 251, 0.72));
+  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 4px 12px rgba(10, 40, 62, 0.18);
+  --modal-surface: linear-gradient(180deg, rgba(250, 253, 255, 0.96), rgba(230, 242, 251, 0.92));
+  --modal-border: rgba(120, 168, 202, 0.3);
+  --heading-glow: 0 0 22px rgba(198, 230, 255, 0.5);
+  --panel-backdrop: blur(12px) saturate(118%);
+  --button-backdrop: blur(7px);
+  --board-backdrop: blur(9px);
+  --status-backdrop: blur(9px);
+  --feedback-backdrop: blur(7px);
+  --modal-backdrop-filter: blur(16px);
 }
 
 /* ---------------------------------------------------------------- *
- * B. Celestial Observatory
+ * B. Celestial Observatory (星河天文台) — deep purple / star blue / champagne gold
  * ---------------------------------------------------------------- */
 
 body[data-vip-theme="vvip-observatory"] {
-  --bg: #0b1230;
-  --panel: rgba(236, 240, 255, 0.72);
-  --line: #2c3560;
-  --soft-line: #8890bd;
-  --text: #171b34;
-  --muted: #4c5578;
-  --given: #737ca6;
-  --player-a: #1f4ea8;
-  --player-b: #0d8a86;
-  --accent: #3a4a9e;
-  --selected: #d5dcff;
-  --related: #e1e5fb;
-  --matched-digit: #c3ccfb;
-  --matched-digit-text: #2c356f;
-  --shadow: 0 22px 46px rgba(4, 8, 30, 0.4);
-  --button-bg: rgba(245, 247, 255, 0.7);
-  --button-border: #5c66a0;
-  --board-bg: rgba(245, 247, 255, 0.64);
-  --cell-bg: rgba(255, 255, 255, 0.86);
-  --feedback-surface: rgba(236, 240, 255, 0.68);
+  --bg: #150b2e;
+  --panel: rgba(232, 236, 255, 0.6);
+  --line: #3a2a63;
+  --soft-line: #8b83c4;
+  --text: #1a1338;
+  --muted: #564f80;
+  --given: #7d78ab;
+  --player-a: #4b3fa8;
+  --player-b: #0f8a86;
+  --accent: #d3b063;
+  --selected: #eadfb6;
+  --related: #e6e1f8;
+  --matched-digit: #d8c98f;
+  --matched-digit-text: #4a3a12;
+  --shadow: 0 22px 46px rgba(6, 2, 22, 0.44);
+  --button-bg: rgba(244, 244, 255, 0.66);
+  --button-border: #7a6fb0;
+  --board-bg: rgba(244, 243, 255, 0.58);
+  --cell-bg: rgba(255, 255, 255, 0.88);
+  --feedback-surface: rgba(232, 234, 255, 0.62);
   --page-overlay:
-    radial-gradient(circle at 50% 12%, rgba(180, 202, 255, 0.16), transparent 28%),
-    linear-gradient(180deg, rgba(6, 10, 34, 0.36), rgba(4, 6, 24, 0.58));
+    radial-gradient(circle at 50% 10%, rgba(206, 184, 255, 0.2), transparent 30%),
+    linear-gradient(180deg, rgba(14, 6, 34, 0.38), rgba(8, 3, 22, 0.64));
   --page-ambient:
-    radial-gradient(circle at 16% 24%, rgba(150, 178, 255, 0.16), transparent 22%),
-    radial-gradient(circle at 84% 76%, rgba(196, 176, 255, 0.14), transparent 22%);
-  --panel-border: rgba(92, 102, 160, 0.22);
+    radial-gradient(circle at 16% 24%, rgba(142, 178, 255, 0.18), transparent 22%),
+    radial-gradient(circle at 84% 76%, rgba(216, 178, 255, 0.16), transparent 22%);
+  --panel-border: rgba(150, 138, 210, 0.26);
   --panel-surface:
-    linear-gradient(180deg, rgba(248, 250, 255, 0.76), rgba(228, 233, 252, 0.6)),
-    radial-gradient(circle at top center, rgba(255, 255, 255, 0.24), transparent 46%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 0 0 1px rgba(150, 160, 210, 0.08);
-  --status-surface: linear-gradient(180deg, rgba(246, 248, 255, 0.74), rgba(226, 231, 252, 0.58));
+    linear-gradient(180deg, rgba(250, 249, 255, 0.66), rgba(226, 224, 250, 0.46)),
+    radial-gradient(circle at top center, rgba(214, 196, 255, 0.3), transparent 48%);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.52), inset 0 0 0 1px rgba(158, 146, 214, 0.12);
+  --status-surface: linear-gradient(180deg, rgba(246, 245, 255, 0.64), rgba(224, 222, 250, 0.44));
+  /* Gold-purple board frame. */
   --board-frame:
-    linear-gradient(145deg, #6a74ad, #2b3363),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08) 3px, rgba(43, 51, 99, 0.08) 3px, rgba(43, 51, 99, 0.08) 10px);
-  --board-frame-shadow: inset 0 1px 0 rgba(240, 244, 255, 0.24), 0 20px 36px rgba(5, 8, 32, 0.38);
-  --board-inner-shadow: inset 0 0 0 2px rgba(244, 247, 255, 0.18);
+    linear-gradient(145deg, #e3ce92, #6a56b0),
+    repeating-linear-gradient(90deg, rgba(255, 246, 214, 0.12), rgba(255, 246, 214, 0.12) 3px, rgba(80, 62, 150, 0.1) 3px, rgba(80, 62, 150, 0.1) 10px);
+  --board-frame-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.4), 0 20px 38px rgba(6, 2, 24, 0.44);
+  --board-inner-shadow: inset 0 0 0 2px rgba(238, 228, 255, 0.24);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(238, 242, 255, 0.84)),
-    radial-gradient(circle at bottom right, rgba(206, 216, 255, 0.34), transparent 48%);
-  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
-  --button-surface: linear-gradient(180deg, rgba(252, 253, 255, 0.92), rgba(231, 236, 255, 0.78));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 4px 12px rgba(10, 16, 54, 0.2);
-  --modal-surface: linear-gradient(180deg, rgba(250, 251, 255, 0.97), rgba(232, 236, 254, 0.95));
-  --modal-border: rgba(92, 102, 160, 0.24);
-  --heading-glow: 0 0 22px rgba(190, 208, 255, 0.38);
-  --panel-backdrop: blur(10px) saturate(116%);
-  --button-backdrop: blur(6px);
-  --board-backdrop: blur(8px);
-  --status-backdrop: blur(8px);
-  --feedback-backdrop: blur(6px);
-  --modal-backdrop-filter: blur(14px);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(240, 238, 255, 0.84)),
+    radial-gradient(circle at bottom right, rgba(210, 198, 255, 0.36), transparent 48%);
+  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  --button-surface: linear-gradient(180deg, rgba(253, 252, 255, 0.9), rgba(232, 228, 252, 0.72));
+  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 4px 12px rgba(14, 6, 40, 0.24);
+  --modal-surface: linear-gradient(180deg, rgba(250, 249, 255, 0.96), rgba(232, 228, 252, 0.93));
+  --modal-border: rgba(150, 138, 210, 0.28);
+  --heading-glow: 0 0 22px rgba(224, 202, 255, 0.46);
+  --panel-backdrop: blur(12px) saturate(120%);
+  --button-backdrop: blur(7px);
+  --board-backdrop: blur(9px);
+  --status-backdrop: blur(9px);
+  --feedback-backdrop: blur(7px);
+  --modal-backdrop-filter: blur(16px);
 }
 
 /* ---------------------------------------------------------------- *
- * C. Sakura Moon Garden
+ * C. Sakura Moon Garden (樱月庭院) — sakura pink / cream white / soft gold
  * ---------------------------------------------------------------- */
 
 body[data-vip-theme="vvip-sakura"] {
-  --bg: #2a1424;
-  --panel: rgba(255, 243, 249, 0.74);
-  --line: #5c3350;
-  --soft-line: #b98aa9;
-  --text: #2c1728;
-  --muted: #6d4a61;
-  --given: #9a6f8b;
-  --player-a: #8a3d6b;
+  --bg: #2b1622;
+  --panel: rgba(255, 249, 243, 0.66);
+  --line: #5f3b4c;
+  --soft-line: #c39aad;
+  --text: #2e1b25;
+  --muted: #6f4d5d;
+  --given: #a0778a;
+  --player-a: #9c4a6f;
   --player-b: #0f8a7f;
-  --accent: #b0356f;
-  --selected: #ffdcec;
-  --related: #ffe6f1;
-  --matched-digit: #fbd0e3;
-  --matched-digit-text: #8a2f5d;
-  --shadow: 0 22px 46px rgba(34, 10, 26, 0.34);
-  --button-bg: rgba(255, 247, 251, 0.72);
-  --button-border: #a86d8f;
-  --board-bg: rgba(255, 247, 251, 0.66);
-  --cell-bg: rgba(255, 255, 255, 0.88);
-  --feedback-surface: rgba(255, 243, 249, 0.7);
+  --accent: #c9a24a;
+  --selected: #ffd9e6;
+  --related: #ffe9f0;
+  --matched-digit: #f7d9b8;
+  --matched-digit-text: #7a4a15;
+  --shadow: 0 22px 46px rgba(38, 12, 26, 0.34);
+  --button-bg: rgba(255, 250, 245, 0.7);
+  --button-border: #b98aa0;
+  --board-bg: rgba(255, 250, 245, 0.62);
+  --cell-bg: rgba(255, 255, 255, 0.9);
+  --feedback-surface: rgba(255, 247, 241, 0.68);
   --page-overlay:
-    radial-gradient(circle at 50% 12%, rgba(255, 226, 240, 0.18), transparent 28%),
-    linear-gradient(180deg, rgba(36, 12, 28, 0.3), rgba(24, 8, 20, 0.54));
+    radial-gradient(circle at 50% 12%, rgba(255, 226, 236, 0.2), transparent 30%),
+    linear-gradient(180deg, rgba(40, 16, 28, 0.3), rgba(26, 9, 18, 0.56));
   --page-ambient:
-    radial-gradient(circle at 14% 30%, rgba(255, 196, 224, 0.18), transparent 24%),
-    radial-gradient(circle at 86% 70%, rgba(214, 176, 255, 0.12), transparent 22%);
-  --panel-border: rgba(168, 109, 143, 0.24);
+    radial-gradient(circle at 14% 28%, rgba(255, 200, 220, 0.2), transparent 24%),
+    radial-gradient(circle at 86% 72%, rgba(246, 214, 150, 0.14), transparent 22%);
+  --panel-border: rgba(200, 150, 172, 0.26);
   --panel-surface:
-    linear-gradient(180deg, rgba(255, 250, 253, 0.78), rgba(250, 232, 242, 0.62)),
-    radial-gradient(circle at top center, rgba(255, 255, 255, 0.26), transparent 46%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.52), inset 0 0 0 1px rgba(200, 150, 180, 0.08);
-  --status-surface: linear-gradient(180deg, rgba(255, 249, 252, 0.76), rgba(250, 231, 241, 0.6));
+    linear-gradient(180deg, rgba(255, 253, 250, 0.72), rgba(252, 238, 234, 0.52)),
+    radial-gradient(circle at top center, rgba(255, 240, 220, 0.34), transparent 46%);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.56), inset 0 0 0 1px rgba(214, 176, 190, 0.1);
+  --status-surface: linear-gradient(180deg, rgba(255, 252, 248, 0.7), rgba(253, 238, 236, 0.5));
+  /* Washi-paper / soft gold board frame. */
   --board-frame:
-    linear-gradient(145deg, #a5768f, #5c3350),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08) 3px, rgba(92, 51, 80, 0.08) 3px, rgba(92, 51, 80, 0.08) 10px);
-  --board-frame-shadow: inset 0 1px 0 rgba(255, 240, 248, 0.26), 0 20px 36px rgba(38, 12, 28, 0.32);
-  --board-inner-shadow: inset 0 0 0 2px rgba(255, 246, 251, 0.2);
+    linear-gradient(145deg, #fbe3ea, #c9a24a),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16) 3px, rgba(180, 130, 150, 0.08) 3px, rgba(180, 130, 150, 0.08) 10px);
+  --board-frame-shadow: inset 0 1px 0 rgba(255, 246, 238, 0.5), 0 20px 36px rgba(40, 14, 28, 0.3);
+  --board-inner-shadow: inset 0 0 0 2px rgba(255, 246, 240, 0.28);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(252, 238, 246, 0.86)),
-    radial-gradient(circle at bottom right, rgba(255, 214, 234, 0.36), transparent 48%);
-  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  --button-surface: linear-gradient(180deg, rgba(255, 253, 254, 0.94), rgba(252, 236, 245, 0.8));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76), 0 4px 12px rgba(66, 18, 46, 0.16);
-  --modal-surface: linear-gradient(180deg, rgba(255, 251, 253, 0.97), rgba(253, 236, 245, 0.95));
-  --modal-border: rgba(168, 109, 143, 0.26);
-  --heading-glow: 0 0 22px rgba(255, 202, 228, 0.36);
-  --panel-backdrop: blur(10px) saturate(116%);
-  --button-backdrop: blur(6px);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 244, 244, 0.86)),
+    radial-gradient(circle at bottom right, rgba(255, 224, 226, 0.38), transparent 48%);
+  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --button-surface: linear-gradient(180deg, rgba(255, 254, 252, 0.92), rgba(253, 240, 238, 0.78));
+  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 4px 12px rgba(70, 24, 44, 0.16);
+  --modal-surface: linear-gradient(180deg, rgba(255, 253, 251, 0.97), rgba(255, 242, 240, 0.94));
+  --modal-border: rgba(200, 150, 172, 0.28);
+  --heading-glow: 0 0 22px rgba(255, 214, 200, 0.42);
+  --panel-backdrop: blur(11px) saturate(116%);
+  --button-backdrop: blur(7px);
   --board-backdrop: blur(8px);
   --status-backdrop: blur(8px);
   --feedback-backdrop: blur(6px);
-  --modal-backdrop-filter: blur(14px);
+  --modal-backdrop-filter: blur(15px);
 }
 
 /* ---------------------------------------------------------------- *

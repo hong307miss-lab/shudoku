@@ -15,6 +15,9 @@ const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
+  // The Discord Activity SDK ships as an ES module. Browsers enforce a JavaScript
+  // MIME type for module imports, so `.mjs` cannot fall back to octet-stream.
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -94,7 +97,7 @@ function maybeServeStatic(res, pathname) {
   }
 
   const ext = path.extname(normalizedPath).toLowerCase();
-  const shouldBypassCache = ext === ".html" || ext === ".js" || ext === ".css";
+  const shouldBypassCache = ext === ".html" || ext === ".js" || ext === ".css" || ext === ".mjs";
   const headers = {
     "Content-Type": contentTypes[ext] || "application/octet-stream",
     "Cache-Control": shouldBypassCache ? "no-store" : "public, max-age=3600",

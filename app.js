@@ -63,6 +63,32 @@ function getDiscordSdkConstructor() {
   return window.DiscordSDK || window.Discord?.DiscordSDK || null;
 }
 
+/**
+ * Resolves the Discord Activity SDK constructor.
+ *
+ * The vendored loader (`./vendor/discord-runtime-loader.js`) starts an ESM import of
+ * `@discord/embedded-app-sdk` and exposes the pending promise on the page. Awaiting it here
+ * keeps the runtime decision inside app.js: `isLikelyDiscordFrame()` still only gates *loading*
+ * the SDK, while `state.runtime.kind = "discord"` is only set after `discordSdk.ready()` resolves.
+ */
+async function resolveDiscordSdkConstructor() {
+  const pendingSdk = window.__DISCORD_SDK_PROMISE__;
+
+  if (pendingSdk && typeof pendingSdk.then === "function") {
+    try {
+      const resolved = await pendingSdk;
+
+      if (resolved) {
+        return resolved;
+      }
+    } catch (error) {
+      console.warn("Discord Activity SDK module failed to resolve.", error);
+    }
+  }
+
+  return getDiscordSdkConstructor();
+}
+
 function isLikelyDiscordFrame() {
   return Boolean(
     window.location.hostname.includes("discordsays.com")
@@ -73,7 +99,7 @@ function isLikelyDiscordFrame() {
 }
 
 async function initRuntimeEnvironment() {
-  const DiscordSDKConstructor = getDiscordSdkConstructor();
+  const DiscordSDKConstructor = await resolveDiscordSdkConstructor();
   setDiscordAuthState(readStoredDiscordAuth());
 
   if (!DiscordSDKConstructor) {
@@ -85,7 +111,11 @@ async function initRuntimeEnvironment() {
   }
 
   try {
-    discordSdk = new DiscordSDKConstructor({ clientId: DISCORD_CLIENT_ID });
+    // `@discord/embedded-app-sdk` takes the client id as its first positional argument
+    // (`constructor(clientId: string, configuration?: SdkConfiguration)`). Passing an options
+    // object here left `discordSdk.clientId` as an object, so the RPC handshake never echoed a
+    // valid `client_id`, `ready()` never resolved, and the runtime silently fell back to "web".
+    discordSdk = new DiscordSDKConstructor(DISCORD_CLIENT_ID);
     await Promise.race([
       discordSdk.ready(),
       new Promise((_, reject) => {
@@ -172,7 +202,7 @@ const vipThemeLabels = Object.fromEntries(
 
 // VVIP room themes are registered by ./vvip/vvip-theme.js, which is only loaded on the VIP Room
 // page. Everything below stays null-safe so the other pages keep working untouched.
-const VVIP_SKIN_CSS_PATH = "./vvip/vvip-theme.css?v=20261111-vvip-themes";
+const VVIP_SKIN_CSS_PATH = "./vvip/vvip-theme.css?v=20261112-runtime-rooms";
 
 function getVvipModule() {
   const vvipModule = window.SUDOKU_VVIP;
@@ -1061,14 +1091,16 @@ const operatorGroup = document.querySelector("#operator-group");
 const operatorControls = document.querySelector("#operator-controls");
 const entryModeControls = document.querySelector("#entry-mode-controls");
 const themeControls = document.querySelector("#theme-controls");
-const openThemeRoomButton = document.querySelector("#open-theme-room-button");
-const themeRoomModal = document.querySelector("#theme-room-modal");
-const closeThemeRoomButton = document.querySelector("#close-theme-room-button");
+const vvipRoomsView = document.querySelector("#vvip-rooms-view");
+const vvipRoomGrid = document.querySelector("#vvip-room-grid");
+const openVvipRoomsButton = document.querySelector("#open-vvip-rooms-button");
+const closeVvipRoomsButton = document.querySelector("#close-vvip-rooms-button");
 const vipSkinRoot = document.querySelector("#vip-skin-root");
 const keypad = document.querySelector("#keypad");
 const boardLegend = document.querySelector(".legend");
 const newPuzzleButton = document.querySelector("#new-puzzle-button");
 const startGameButton = document.querySelector("#start-game-button");
+const statusMode = document.querySelector("#status-mode");
 const statusDifficulty = document.querySelector("#status-difficulty");
 const statusOperator = document.querySelector("#status-operator");
 const statusEntryMode = document.querySelector("#status-entry-mode");
@@ -1169,23 +1201,31 @@ function closeModeSelectModal() {
   modeSelectModal.setAttribute("aria-hidden", "true");
 }
 
-function openThemeRoomModal() {
-  if (!themeRoomModal) {
-    return;
+function openVvipRoomsView() {
+  if (!vvipRoomsView) {
+    return false;
   }
 
+  renderVvipRoomCards();
   renderThemeControls();
-  themeRoomModal.classList.remove("hidden");
-  themeRoomModal.setAttribute("aria-hidden", "false");
+  vvipRoomsView.classList.remove("hidden");
+  vvipRoomsView.setAttribute("aria-hidden", "false");
+  document.body.classList.add("vvip-rooms-open");
+  return true;
 }
 
-function closeThemeRoomModal() {
-  if (!themeRoomModal) {
+function closeVvipRoomsView() {
+  if (!vvipRoomsView) {
     return;
   }
 
-  themeRoomModal.classList.add("hidden");
-  themeRoomModal.setAttribute("aria-hidden", "true");
+  vvipRoomsView.classList.add("hidden");
+  vvipRoomsView.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("vvip-rooms-open");
+}
+
+function isVvipRoomsViewOpen() {
+  return Boolean(vvipRoomsView) && !vvipRoomsView.classList.contains("hidden");
 }
 
 function openRoomHubModal() {
@@ -2042,6 +2082,10 @@ function shouldPromptModeSelectionOnLaunch() {
   return !hasExplicitManualRoomEntry();
 }
 
+function isVvipRoomsDeepLink() {
+  return new URLSearchParams(window.location.search).get("rooms") === "vvip";
+}
+
 function startApp() {
   const crossPageRoomContext = getCrossPageRoomContextOnLaunch();
   const storedMode = readStoredGameMode();
@@ -2073,6 +2117,17 @@ function startApp() {
   if (resumableSinglePlayerMode) {
     state.gameMode = resumableSinglePlayerMode;
     writeStoredGameMode(state.gameMode);
+    closeModeSelectModal();
+    bootstrapOnce();
+    return;
+  }
+
+  // Reaching the room lobby straight from the nav (`?rooms=vvip`) must show the dream rooms, not
+  // the mode picker. Start the stored/default solo board underneath so the lobby overlays a live game.
+  if (isVvipRoomsDeepLink()) {
+    const mode = storedMode || "single";
+    state.gameMode = mode;
+    writeStoredGameMode(mode);
     closeModeSelectModal();
     bootstrapOnce();
     return;
@@ -3049,25 +3104,101 @@ function loadVipThemePreference() {
   applyVipTheme(readPreferredVipTheme() || DEFAULT_VIP_THEME);
 }
 
-function buildVvipProgressCopy(theme) {
-  const controller = getVvipController();
+/**
+ * Growth snapshot for one VVIP room, shaped for the room lobby cards.
+ * Reads the existing VVIP progress manager; it never writes progress.
+ */
+function getVvipGrowthSnapshot(themeId) {
   const vvipModule = getVvipModule();
+  const controller = getVvipController();
+  const maxStage = vvipModule && Number.isFinite(vvipModule.maxStage) ? vvipModule.maxStage : 3;
+  const empty = {
+    stage: 0,
+    maxStage,
+    completedCount: 0,
+    nextThreshold: 0,
+    percent: 0,
+    complete: false,
+  };
 
-  if (!controller || !vvipModule || !theme) {
-    return "Pick a VVIP dream room to preview it. 免费体验中 · Growth is saved on this device only.";
+  if (!controller || !themeId || typeof controller.getThemeProgress !== "function") {
+    return empty;
   }
 
-  const themeName = theme.labelZh || theme.label;
-  const entry = controller.getThemeProgress(theme.id);
-  const maxStage = vvipModule.maxStage;
+  const entry = controller.getThemeProgress(themeId) || { stage: 0, completedCount: 0 };
+  const stage = Math.max(0, Number(entry.stage) || 0);
+  const completedCount = Math.max(0, Number(entry.completedCount) || 0);
+  const complete = stage >= maxStage;
 
-  if (entry.stage >= maxStage) {
-    return `${themeName}: Stage ${entry.stage} of ${maxStage} reached after ${entry.completedCount} puzzles.`;
+  if (complete) {
+    return { stage, maxStage, completedCount, nextThreshold: completedCount, percent: 100, complete };
   }
 
-  const nextThreshold = vvipModule.getNextStageThreshold(entry.completedCount);
+  const thresholds = vvipModule && Array.isArray(vvipModule.stageThresholds) ? vvipModule.stageThresholds : [];
+  const stageFloor = Number(thresholds[stage]) || 0;
+  const nextThreshold = typeof vvipModule?.getNextStageThreshold === "function"
+    ? vvipModule.getNextStageThreshold(completedCount)
+    : stageFloor;
+  const span = Math.max(1, nextThreshold - stageFloor);
+  const percent = Math.max(0, Math.min(100, Math.round(((completedCount - stageFloor) / span) * 100)));
 
-  return `${themeName}: Stage ${entry.stage} of ${maxStage} · ${entry.completedCount}/${nextThreshold} puzzles to Stage ${entry.stage + 1}.`;
+  return { stage, maxStage, completedCount, nextThreshold, percent, complete };
+}
+
+function buildVvipRoomCardMarkup(theme, vvipModule) {
+  const snapshot = getVvipGrowthSnapshot(theme.id);
+  const paths = vvipModule && typeof vvipModule.getBackgroundPaths === "function"
+    ? vvipModule.getBackgroundPaths(theme.id)
+    : null;
+  const previewSrc = paths ? paths.desktop : "";
+  const isActive = state.vipTheme === theme.id;
+  const growthCopy = snapshot.complete
+    ? `Stage ${snapshot.stage} / ${snapshot.maxStage} · 已满级`
+    : `Stage ${snapshot.stage} / ${snapshot.maxStage} · ${snapshot.completedCount}/${snapshot.nextThreshold}`;
+
+  return `
+    <article class="vvip-room-card${isActive ? " active" : ""}" data-room-theme="${theme.id}" data-room-stage="${snapshot.stage}">
+      <div class="vvip-room-card__preview">
+        ${previewSrc ? `<img src="${previewSrc}" alt="" loading="lazy" decoding="async" />` : ""}
+        <span class="vvip-theme-badge vvip-room-card__badge">免费体验中</span>
+      </div>
+      <div class="vvip-room-card__body">
+        <h3 class="vvip-room-card__title">
+          <span class="vvip-room-card__zh">${theme.labelZh || theme.label}</span>
+          <span class="vvip-room-card__en">${theme.label}</span>
+        </h3>
+        <p class="vvip-room-card__note">${theme.previewNote || ""}</p>
+        <div class="vvip-room-card__growth" data-room-growth>
+          <div class="vvip-room-card__growth-head">
+            <span>Growth / 成长</span>
+            <span>${growthCopy}</span>
+          </div>
+          <div class="vvip-room-card__bar"><span style="width: ${snapshot.percent}%"></span></div>
+        </div>
+        <button
+          type="button"
+          class="chip-button vvip-room-card__enter"
+          data-room-enter="${theme.id}"
+          aria-pressed="${isActive ? "true" : "false"}"
+        >${isActive ? "当前房间 / In use" : "选择并进入 / Enter"}</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderVvipRoomCards() {
+  if (!vvipRoomGrid) {
+    return;
+  }
+
+  const vvipModule = getVvipModule();
+  const vvipThemes = getVvipThemeList();
+  const markup = vvipThemes.map((theme) => buildVvipRoomCardMarkup(theme, vvipModule)).join("");
+
+  if (vvipRoomGrid.dataset.roomsMarkup !== markup) {
+    vvipRoomGrid.innerHTML = markup;
+    vvipRoomGrid.dataset.roomsMarkup = markup;
+  }
 }
 
 function renderThemeControls() {
@@ -3075,41 +3206,21 @@ function renderThemeControls() {
     return;
   }
 
-  const vvipThemes = getVvipThemeList();
   const freeThemeMarkup = VIP_THEME_REGISTRY.map(
     (theme) => `<button type="button" class="chip-button theme-button" data-theme="${theme.id}">${theme.label}</button>`,
   ).join("");
-  const activeVvipTheme = isVvipThemeId(state.vipTheme)
-    ? getVvipTheme(state.vipTheme)
-    : vvipThemes[0] || null;
   const controller = getVvipController();
   const effectsEnabled = controller ? controller.getEffectsEnabled() : true;
-  const vvipThemeMarkup = vvipThemes.map(
-    (theme) => `
-        <button type="button" class="chip-button theme-button vvip-theme-button" data-theme="${theme.id}" title="${theme.label}">
-          <span class="vvip-theme-button__zh">${theme.labelZh || theme.label}</span>
-          <span class="vvip-theme-button__en">${theme.label}</span>
-        </button>`,
-  ).join("");
-
-  const vvipSection = vvipThemes.length === 0
-    ? ""
-    : `
-      <div class="vvip-theme-group" data-theme-group="vvip">
-        <span class="vvip-theme-group__label">VVIP Dream Rooms · 梦幻房间<span class="vvip-theme-badge">免费体验中</span></span>
-        <div class="vvip-theme-group__row">${vvipThemeMarkup}</div>
-        <button type="button" class="chip-button secondary-chip-button vvip-effects-toggle" data-vvip-effects="${effectsEnabled ? "on" : "off"}" aria-pressed="${effectsEnabled ? "true" : "false"}">Ambient effects: ${effectsEnabled ? "On" : "Off"}</button>
-        <p class="vvip-theme-group__meta" data-vvip-progress>${buildVvipProgressCopy(activeVvipTheme)}</p>
-        <p class="vvip-theme-group__meta" data-vvip-notice>Free to preview during this test period — no payment is involved. Growth progress is stored in this browser only. Clearing site data or switching devices resets it.</p>
-      </div>
-    `;
 
   const markup = `
     <div class="vvip-theme-group" data-theme-group="vip">
       <span class="vvip-theme-group__label">VIP Themes · 免费主题</span>
       <div class="vvip-theme-group__row">${freeThemeMarkup}</div>
     </div>
-    ${vvipSection}
+    <div class="vvip-theme-group" data-theme-group="vvip-effects">
+      <button type="button" class="chip-button secondary-chip-button vvip-effects-toggle" data-vvip-effects="${effectsEnabled ? "on" : "off"}" aria-pressed="${effectsEnabled ? "true" : "false"}">Ambient effects: ${effectsEnabled ? "On" : "Off"}</button>
+      <p class="vvip-theme-group__meta" data-vvip-notice>Free to preview during this test period — no payment is involved. Growth progress is stored in this browser only. Clearing site data or switching devices resets it.</p>
+    </div>
   `.trim();
 
   if (themeControls.dataset.registryMarkup !== markup) {
@@ -4695,6 +4806,10 @@ function renderControls() {
     button.classList.toggle("active", button.dataset.entryMode === state.entryMode);
   });
 
+  if (statusMode) {
+    statusMode.textContent = gameModeLabels[state.gameMode] || state.gameMode || "";
+  }
+
   if (statusDifficulty) {
     statusDifficulty.textContent = difficultyLabels[state.difficulty];
   }
@@ -5184,7 +5299,9 @@ function createCellContent(cell, index, options = {}) {
 
     note.className = "note note-slot";
     note.dataset.noteDigit = key;
-    note.textContent = owner ? key : isSelectedEmpty ? key : "";
+    // Candidate digits are opt-in: a note slot only shows the digit the player actually marked.
+    // Unmarked slots stay empty (but clickable) so Notes can never read as real board values.
+    note.textContent = owner ? key : "";
     note.setAttribute("aria-label", `Note ${key}`);
     note.classList.toggle("filled", Boolean(owner));
 
@@ -5883,6 +6000,20 @@ function handleThemeClick(event) {
     return;
   }
 
+  const roomButton = event.target.closest("[data-room-enter]");
+
+  if (roomButton) {
+    // Entering a dream room only repaints the local skin and returns to the board. Game mode,
+    // puzzle, timer, score, notes and the multiplayer socket are intentionally left untouched.
+    applyVipTheme(roomButton.dataset.roomEnter);
+    writePreferredVipTheme(state.vipTheme);
+    renderVvipRoomCards();
+    renderThemeControls();
+    renderBoard();
+    closeVvipRoomsView();
+    return;
+  }
+
   const button = event.target.closest("[data-theme]");
 
   if (!button) {
@@ -5891,21 +6022,23 @@ function handleThemeClick(event) {
 
   applyVipTheme(button.dataset.theme);
   writePreferredVipTheme(state.vipTheme);
+  renderVvipRoomCards();
+  renderThemeControls();
   renderControls();
   renderBoard();
 }
 
-function handleOpenThemeRoomClick() {
-  openThemeRoomModal();
+function handleOpenVvipRoomsClick() {
+  openVvipRoomsView();
 }
 
-function handleCloseThemeRoomClick() {
-  closeThemeRoomModal();
+function handleCloseVvipRoomsClick() {
+  closeVvipRoomsView();
 }
 
-function handleThemeRoomModalClick(event) {
-  if (event.target === themeRoomModal) {
-    closeThemeRoomModal();
+function handleVvipRoomsViewClick(event) {
+  if (event.target === vvipRoomsView) {
+    closeVvipRoomsView();
   }
 }
 
@@ -6417,6 +6550,14 @@ function handlePageLinkClick(event) {
     return;
   }
 
+  // The VVIP Rooms entry is a real navigation target from the lobby pages, but on the VIP Room page
+  // it opens the in-place room lobby so the board, timer, notes and socket connection are preserved.
+  if (link.id === "open-vvip-rooms-button" && vvipRoomsView) {
+    event.preventDefault();
+    openVvipRoomsView();
+    return;
+  }
+
   persistPendingRoomNavigation(link.href);
 }
 
@@ -6444,6 +6585,12 @@ function bootstrap() {
   }
   timerIntervalId = window.setInterval(syncTimerDisplay, 1000);
 
+  // Deep link straight from the lobby nav (`?rooms=vvip`). The board stays mounted underneath, so
+  // opening the room lobby never resets the running game or drops the multiplayer connection.
+  if (isVvipRoomsDeepLink()) {
+    openVvipRoomsView();
+  }
+
   boardElement.addEventListener("click", handleBoardClick);
   controlDrawerToggle?.addEventListener("click", toggleControlsDrawer);
   controlDrawerBackdrop?.addEventListener("click", handleControlsPanelClick);
@@ -6451,14 +6598,26 @@ function bootstrap() {
   operatorControls.addEventListener("click", handleOperatorClick);
   entryModeControls.addEventListener("click", handleEntryModeClick);
   themeControls?.addEventListener("click", handleThemeClick);
-  openThemeRoomButton?.addEventListener("click", handleOpenThemeRoomClick);
-  closeThemeRoomButton?.addEventListener("click", handleCloseThemeRoomClick);
-  themeRoomModal?.addEventListener("click", handleThemeRoomModalClick);
+  // The dream-room cards live in the lobby grid, not in `#theme-controls`, so they need the
+  // same delegated handler bound to their own container.
+  vvipRoomGrid?.addEventListener("click", handleThemeClick);
+  openVvipRoomsButton?.addEventListener("click", handleOpenVvipRoomsClick);
+  closeVvipRoomsButton?.addEventListener("click", handleCloseVvipRoomsClick);
+  vvipRoomsView?.addEventListener("click", handleVvipRoomsViewClick);
   keypad.addEventListener("click", handleKeypadClick);
   window.addEventListener("keydown", handleKeyboardInput);
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && document.body.dataset.controlsOpen === "true") {
+    if (event.key !== "Escape") {
+      return;
+    }
+
+    if (document.body.dataset.controlsOpen === "true") {
       closeControlsDrawer();
+      return;
+    }
+
+    if (isVvipRoomsViewOpen()) {
+      closeVvipRoomsView();
     }
   });
   window.addEventListener("storage", handleStorageSync);

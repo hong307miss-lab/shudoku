@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Discord Sudoku Prototype - VIP Room</title>
-    <link rel="stylesheet" href="./styles.css?v=20261008-ranked-rightpanel" />
+    <link rel="stylesheet" href="./styles.css?v=20261112-runtime-rooms" />
     <style>
       body.discord-pending .app-shell,
       body.discord-pending #win-modal {
@@ -25,6 +25,13 @@
         <nav class="page-switcher" aria-label="Player pages">
               <a class="chip-button page-link-button" href="./index.html">Lobby</a>
               <a class="chip-button page-link-button active" href="./player-b.html?view=vip" aria-current="page">VIP Room</a>
+              <a
+                class="chip-button page-link-button"
+                id="open-vvip-rooms-button"
+                href="./player-b.html?view=vip&amp;rooms=vvip"
+                aria-haspopup="dialog"
+                aria-controls="vvip-rooms-view"
+              >VVIP Rooms · 梦幻房间</a>
         </nav>
       </header>
 
@@ -84,6 +91,10 @@
           <div class="status-panel-header">
             <div class="status-strip">
               <div>
+                <span class="status-label">Mode</span>
+                <strong id="status-mode">Single Mode</strong>
+              </div>
+              <div>
                 <span class="status-label">Difficulty</span>
                 <strong id="status-difficulty">Easy</strong>
               </div>
@@ -104,19 +115,6 @@
             <div class="status-panel-actions">
               <button type="button" class="chip-button start-game-button" id="start-game-button">Start Game</button>
             </div>
-          </div>
-
-          <div class="control-group theme-room-entry-group">
-            <button
-              type="button"
-              class="chip-button theme-room-entry-button"
-              id="open-theme-room-button"
-              aria-haspopup="dialog"
-              aria-controls="theme-room-modal"
-            >
-              <span class="theme-room-entry-button__label">Themes / 主题房间</span>
-              <span class="theme-room-entry-button__badge">VVIP 免费体验中</span>
-            </button>
           </div>
 
           <p class="helper-text" id="helper-text">
@@ -352,31 +350,43 @@
       </div>
     </div>
 
-    <div class="modal-backdrop hidden" id="theme-room-modal" aria-hidden="true">
-      <div class="modal-card theme-room-card" role="dialog" aria-modal="true" aria-labelledby="theme-room-title">
-        <p class="modal-eyebrow">Theme Rooms</p>
-        <h2 id="theme-room-title">主题房间</h2>
-        <p class="modal-copy">
-          Themes only change how your own board looks. Your puzzle, timer, score and room connection stay exactly
-          the same, and the board keeps its size.
-        </p>
-        <div class="theme-room-body">
-          <div class="button-row" id="theme-controls"></div>
-        </div>
-        <div class="theme-room-actions">
-          <button type="button" class="chip-button modal-close-button" id="close-theme-room-button">Done / 完成</button>
-        </div>
-      </div>
-    </div>
+    <section
+      class="vvip-rooms-view hidden"
+      id="vvip-rooms-view"
+      aria-hidden="true"
+      aria-labelledby="vvip-rooms-title"
+    >
+      <div class="vvip-rooms-shell" role="dialog" aria-modal="true" aria-labelledby="vvip-rooms-title">
+        <header class="vvip-rooms-header">
+          <div class="vvip-rooms-heading">
+            <p class="modal-eyebrow">Dream Rooms</p>
+            <h2 id="vvip-rooms-title">VVIP Rooms · 梦幻房间</h2>
+            <p class="vvip-rooms-copy">
+              Themes only change how your own board looks. Your puzzle, timer, score and room connection stay exactly
+              the same, and the board keeps its size.
+            </p>
+          </div>
+          <button type="button" class="chip-button secondary-chip-button" id="close-vvip-rooms-button">
+            Back to board / 返回棋盘
+          </button>
+        </header>
 
-    <script src="https://cdn.discordapp.com/sdk.js"></script>
+        <div class="vvip-room-grid" id="vvip-room-grid"></div>
+
+        <section class="vvip-rooms-extras" aria-label="Theme extras">
+          <div class="button-row" id="theme-controls"></div>
+        </section>
+      </div>
+    </section>
+
+    <script src="./vendor/discord-runtime-loader.js?v=20261112-runtime-rooms"></script>
     <script src="./config.js?v=20261008-local-preview"></script>
     <script src="./vendor/socket.io.min.js?v=20260830-remote-room-server"></script>
     <script src="./puzzle-bank/easy.js?v=20261008-easier-easy-bank"></script>
     <script src="./puzzle-bank/medium.js?v=20261006-puzzle-bank"></script>
     <script src="./puzzle-bank/hard.js?v=20261006-puzzle-bank"></script>
     <script src="./game-content.js?v=20261006-puzzle-bank"></script>
-    <script src="./vvip/vvip-theme.js?v=20261111-vvip-themes"></script>
-    <script src="./app.js?v=20261008-ranked-rightpanel"></script>
+    <script src="./vvip/vvip-theme.js?v=20261112-runtime-rooms"></script>
+    <script src="./app.js?v=20261112-runtime-rooms"></script>
   </body>
 </html>

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Discord Sudoku Prototype - Lobby</title>
-    <link rel="stylesheet" href="./styles.css?v=20261008-ranked-rightpanel" />
+    <link rel="stylesheet" href="./styles.css?v=20261112-runtime-rooms" />
     <style>
       body.discord-pending .app-shell,
       body.discord-pending #win-modal {
@@ -23,6 +23,7 @@
         <nav class="page-switcher" aria-label="Player pages">
           <a class="chip-button page-link-button active" href="./lobby-b.html" aria-current="page">Lobby</a>
           <a class="chip-button page-link-button" href="./player-b.html?view=vip">VIP Room</a>
+          <a class="chip-button page-link-button" href="./player-b.html?view=vip&amp;rooms=vvip">VVIP Rooms · 梦幻房间</a>
         </nav>
       </header>
 
@@ -335,13 +336,13 @@
       </div>
     </div>
 
-    <script src="https://cdn.discordapp.com/sdk.js"></script>
+    <script src="./vendor/discord-runtime-loader.js?v=20261112-runtime-rooms"></script>
     <script src="./config.js?v=20261008-local-preview"></script>
     <script src="./vendor/socket.io.min.js?v=20260830-remote-room-server"></script>
     <script src="./puzzle-bank/easy.js?v=20261008-easier-easy-bank"></script>
     <script src="./puzzle-bank/medium.js?v=20261006-puzzle-bank"></script>
     <script src="./puzzle-bank/hard.js?v=20261006-puzzle-bank"></script>
     <script src="./game-content.js?v=20261006-puzzle-bank"></script>
-    <script src="./app.js?v=20261008-ranked-rightpanel"></script>
+    <script src="./app.js?v=20261112-runtime-rooms"></script>
   </body>
 </html>
