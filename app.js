@@ -170,6 +170,117 @@ const vipThemeLabels = Object.fromEntries(
   VIP_THEME_REGISTRY.map((theme) => [theme.id, theme.label]),
 );
 
+// VVIP room themes are registered by ./vvip/vvip-theme.js, which is only loaded on the VIP Room
+// page. Everything below stays null-safe so the other pages keep working untouched.
+const VVIP_SKIN_CSS_PATH = "./vvip/vvip-theme.css?v=20261111-vvip-themes";
+
+function getVvipModule() {
+  const vvipModule = window.SUDOKU_VVIP;
+  return vvipModule && typeof vvipModule === "object" ? vvipModule : null;
+}
+
+function getVvipThemeList() {
+  const vvipModule = getVvipModule();
+  return vvipModule && Array.isArray(vvipModule.themes) ? vvipModule.themes : [];
+}
+
+function getVvipTheme(themeId) {
+  const vvipModule = getVvipModule();
+  return vvipModule && typeof vvipModule.getVvipTheme === "function"
+    ? vvipModule.getVvipTheme(themeId)
+    : null;
+}
+
+function isVvipThemeId(themeId) {
+  return Boolean(getVvipTheme(themeId));
+}
+
+function getVvipStorage() {
+  try {
+    return window.localStorage || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+let vvipControllerInstance = null;
+
+function getVvipController() {
+  if (!isVipRoomPage) {
+    return null;
+  }
+
+  const vvipModule = getVvipModule();
+
+  if (!vvipModule || typeof vvipModule.createController !== "function") {
+    return null;
+  }
+
+  if (!vvipControllerInstance) {
+    vvipControllerInstance = vvipModule.createController({
+      root: vipSkinRoot,
+      storage: getVvipStorage(),
+      getReducedMotion: () => window.matchMedia
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false,
+      onAssetError: (themeId) => fallbackFromVvipTheme(themeId),
+    });
+  }
+
+  return vvipControllerInstance;
+}
+
+function fallbackFromVvipTheme(themeId) {
+  if (!isVvipThemeId(themeId) || state.vipTheme !== themeId) {
+    return;
+  }
+
+  console.warn(`VVIP theme assets failed to load for ${themeId}. Falling back to ${DEFAULT_VIP_THEME}.`);
+  applyVipTheme(DEFAULT_VIP_THEME);
+  writePreferredVipTheme(DEFAULT_VIP_THEME);
+  renderThemeControls();
+}
+
+/**
+ * Credits one valid completion. Repeats of the same round id (server re-delivery, reload
+ * resume, storage sync) never add growth twice.
+ */
+function recordVvipCompletionIfNeeded(session) {
+  if (!session?.hasWon) {
+    return;
+  }
+
+  const controller = getVvipController();
+
+  if (!controller || !isVvipThemeId(state.vipTheme)) {
+    return;
+  }
+
+  const result = controller.recordCompletion({
+    themeId: state.vipTheme,
+    roundId: getVvipCompletionRoundId(session),
+    playerId: state.runtime?.auth?.userId || "",
+  });
+
+  if (result.credited) {
+    renderThemeControls();
+  }
+}
+
+function getVvipCompletionRoundId(session) {
+  if (hasAuthoritativeMultiplayerRound() && state.activeRound.completedEventId) {
+    return `round:${state.activeRound.completedEventId}`;
+  }
+
+  if (state.activeRound.id) {
+    return `round:${state.activeRound.id}`;
+  }
+
+  const sessionKey = getSessionKey(state.difficulty, getPuzzleConfig(state.difficulty).id);
+
+  return `session:${session?.runId || sessionKey}`;
+}
+
 const SIMULTANEOUS_INPUT_WINDOW_MS = 300;
 const HEART_TIE_WINDOW_MS = 140;
 const EXPLOSION_DURATION_MS = 650;
@@ -2334,12 +2445,17 @@ function normalizeCell(cell) {
   };
 }
 
+function createSessionRunId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function createSession(difficulty) {
   const config = getPuzzleConfig(difficulty);
 
   return {
     difficulty,
     puzzleId: config.id,
+    runId: createSessionRunId(),
     hasWon: false,
     isPaused: false,
     elapsedSeconds: 0,
@@ -2776,7 +2892,24 @@ function cacheStateLocally() {
 }
 
 function getVipThemeDefinition(theme) {
-  return vipThemeRegistryById[theme] || null;
+  if (Object.prototype.hasOwnProperty.call(vipThemeRegistryById, theme)) {
+    return vipThemeRegistryById[theme];
+  }
+
+  const vvipTheme = getVvipTheme(theme);
+
+  if (!vvipTheme) {
+    return null;
+  }
+
+  return {
+    id: vvipTheme.id,
+    label: vvipTheme.label,
+    bundle: "vvip-room",
+    tier: "vvip",
+    skinCssPath: VVIP_SKIN_CSS_PATH,
+    decorPath: "",
+  };
 }
 
 function ensureVipSkinLinkElement() {
@@ -2862,12 +2995,27 @@ function applyVipTheme(theme) {
       ? DEFAULT_VIP_THEME
       : theme;
 
-  const safeTheme = Object.prototype.hasOwnProperty.call(vipThemeLabels, normalizedTheme)
+  const safeTheme = (
+    Object.prototype.hasOwnProperty.call(vipThemeLabels, normalizedTheme)
+    || isVvipThemeId(normalizedTheme)
+  )
     ? normalizedTheme
     : DEFAULT_VIP_THEME;
 
   state.vipTheme = safeTheme;
   document.body.dataset.vipTheme = safeTheme;
+
+  const vvipController = getVvipController();
+
+  if (isVvipThemeId(safeTheme)) {
+    // VVIP visuals are painted by the VVIP controller; the shared loader only swaps the stylesheet.
+    document.body.dataset.vvipTheme = safeTheme;
+    vvipController?.applyTheme(safeTheme);
+  } else {
+    delete document.body.dataset.vvipTheme;
+    vvipController?.clearTheme();
+  }
+
   loadVipThemePackage(safeTheme);
 }
 
@@ -2879,14 +3027,63 @@ function loadVipThemePreference() {
   applyVipTheme(readPreferredVipTheme() || DEFAULT_VIP_THEME);
 }
 
+function buildVvipProgressCopy(theme) {
+  const controller = getVvipController();
+  const vvipModule = getVvipModule();
+
+  if (!controller || !vvipModule || !theme) {
+    return "Pick a VVIP theme to preview it. Growth is saved on this device only.";
+  }
+
+  const entry = controller.getThemeProgress(theme.id);
+  const maxStage = vvipModule.maxStage;
+
+  if (entry.stage >= maxStage) {
+    return `${theme.label}: Stage ${entry.stage} of ${maxStage} reached after ${entry.completedCount} puzzles.`;
+  }
+
+  const nextThreshold = vvipModule.getNextStageThreshold(entry.completedCount);
+
+  return `${theme.label}: Stage ${entry.stage} of ${maxStage} · ${entry.completedCount}/${nextThreshold} puzzles to Stage ${entry.stage + 1}.`;
+}
+
 function renderThemeControls() {
   if (!themeControls) {
     return;
   }
 
-  const markup = VIP_THEME_REGISTRY.map(
+  const vvipThemes = getVvipThemeList();
+  const freeThemeMarkup = VIP_THEME_REGISTRY.map(
     (theme) => `<button type="button" class="chip-button theme-button" data-theme="${theme.id}">${theme.label}</button>`,
   ).join("");
+  const activeVvipTheme = isVvipThemeId(state.vipTheme)
+    ? getVvipTheme(state.vipTheme)
+    : vvipThemes[0] || null;
+  const controller = getVvipController();
+  const effectsEnabled = controller ? controller.getEffectsEnabled() : true;
+  const vvipThemeMarkup = vvipThemes.map(
+    (theme) => `<button type="button" class="chip-button theme-button" data-theme="${theme.id}">${theme.label}</button>`,
+  ).join("");
+
+  const vvipSection = vvipThemes.length === 0
+    ? ""
+    : `
+      <div class="vvip-theme-group" data-theme-group="vvip">
+        <span class="vvip-theme-group__label">VVIP Themes<span class="vvip-theme-badge">Preview</span></span>
+        <div class="vvip-theme-group__row">${vvipThemeMarkup}</div>
+        <button type="button" class="chip-button secondary-chip-button vvip-effects-toggle" data-vvip-effects="${effectsEnabled ? "on" : "off"}" aria-pressed="${effectsEnabled ? "true" : "false"}">Ambient effects: ${effectsEnabled ? "On" : "Off"}</button>
+        <p class="vvip-theme-group__meta" data-vvip-progress>${buildVvipProgressCopy(activeVvipTheme)}</p>
+        <p class="vvip-theme-group__meta" data-vvip-notice>Growth progress is stored in this browser only. Clearing site data or switching devices resets it.</p>
+      </div>
+    `;
+
+  const markup = `
+    <div class="vvip-theme-group" data-theme-group="vip">
+      <span class="vvip-theme-group__label">VIP Themes</span>
+      <div class="vvip-theme-group__row">${freeThemeMarkup}</div>
+    </div>
+    ${vvipSection}
+  `.trim();
 
   if (themeControls.dataset.registryMarkup !== markup) {
     themeControls.innerHTML = markup;
@@ -3462,6 +3659,7 @@ function ensureSession(difficulty) {
 
   session.cells = session.cells.map(normalizeCell);
   session.puzzleId = session.puzzleId || fallback.puzzleId;
+  session.runId = typeof session.runId === "string" && session.runId ? session.runId : fallback.runId;
   session.difficulty = difficulty;
   session.hasWon = Boolean(session.hasWon);
   session.isPaused = Boolean(session.isPaused);
@@ -4299,6 +4497,7 @@ function updateGameStateAfterBoardChange() {
     updateFeedback(state.feedback, "success");
     syncTimerDisplay();
     saveState();
+    recordVvipCompletionIfNeeded(session);
 
     if (state.shownCompletionEventId !== state.activeRound.completedEventId) {
       state.shownCompletionEventId = state.activeRound.completedEventId;
@@ -4359,6 +4558,7 @@ function updateGameStateAfterBoardChange() {
         session.hasWon = true;
         saveState();
         openWinModal();
+        recordVvipCompletionIfNeeded(session);
       }
       return;
     }
@@ -4416,6 +4616,8 @@ function updateGameStateAfterBoardChange() {
       if (isRankedSoloMode()) {
         void submitRankedLeaderboardResult(session);
       }
+
+      recordVvipCompletionIfNeeded(session);
     }
     return;
   }
@@ -5642,6 +5844,15 @@ function handleOperatorClick(event) {
 
 function handleThemeClick(event) {
   if (!themeControls) {
+    return;
+  }
+
+  const effectsButton = event.target.closest("[data-vvip-effects]");
+
+  if (effectsButton) {
+    const controller = getVvipController();
+    controller?.setEffects(effectsButton.dataset.vvipEffects !== "on");
+    renderThemeControls();
     return;
   }
 

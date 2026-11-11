@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "themes": [
+    {
+      "id": "01_moonlight_conservatory",
+      "display_name_zh": "月光玻璃温室",
+      "desktop": "assets/themes/vvip/01_moonlight_conservatory/bg_desktop.webp",
+      "mobile": "assets/themes/vvip/01_moonlight_conservatory/bg_mobile.webp",
+      "growth_overlay_prefix": "flower",
+      "prototype_only_master": false
+    },
+    {
+      "id": "02_celestial_observatory",
+      "display_name_zh": "星河天文台",
+      "desktop": "assets/themes/vvip/02_celestial_observatory/bg_desktop.webp",
+      "mobile": "assets/themes/vvip/02_celestial_observatory/bg_mobile.webp",
+      "growth_overlay_prefix": "constellation",
+      "prototype_only_master": true
+    },
+    {
+      "id": "03_sakura_moon_garden",
+      "display_name_zh": "樱月庭院",
+      "desktop": "assets/themes/vvip/03_sakura_moon_garden/bg_desktop.webp",
+      "mobile": "assets/themes/vvip/03_sakura_moon_garden/bg_mobile.webp",
+      "growth_overlay_prefix": "sakura_petals",
+      "prototype_only_master": true
+    }
+  ],
+  "growth_stages": [
+    0,
+    5,
+    15,
+    30
+  ],
+  "background_modes": [
+    "desktop",
+    "mobile"
+  ],
+  "integration_targets": [
+    "web",
+    "discord-activity"
+  ]
+}
