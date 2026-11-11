@@ -22,6 +22,7 @@ const VERSUS_SCORING_RULES = Object.freeze({
 });
 
 const MAX_REQUEST_LEDGER_SIZE = 256;
+const MAX_UNDO_STACK_SIZE = 64;
 
 const puzzleBankCache = new Map();
 const puzzleSolutionCache = new Map();
@@ -70,12 +71,41 @@ function cloneCell(cell) {
   };
 }
 
+function cloneUndoStackByPlayer(undoStackByPlayer) {
+  const source = undoStackByPlayer && typeof undoStackByPlayer === "object" ? undoStackByPlayer : {};
+
+  return {
+    A: Array.isArray(source.A) ? source.A.map(cloneUndoEntry) : [],
+    B: Array.isArray(source.B) ? source.B.map(cloneUndoEntry) : [],
+  };
+}
+
+function cloneUndoEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return {};
+  }
+
+  return {
+    cellIndex: Number.isInteger(entry.cellIndex) ? entry.cellIndex : -1,
+    action: typeof entry.action === "string" ? entry.action : "set",
+    digit: typeof entry.digit === "string" ? entry.digit : "",
+    scored: entry.scored === true,
+    before: cloneCell(entry.before),
+    after: cloneCell(entry.after),
+  };
+}
+
 function cloneRoundState(roundState) {
   return {
     ...roundState,
     scoringRules: { ...roundState.scoringRules },
     timings: { ...roundState.timings },
     scores: { ...roundState.scores },
+    restartVotes: {
+      A: roundState.restartVotes?.A === true,
+      B: roundState.restartVotes?.B === true,
+    },
+    undoStackByPlayer: cloneUndoStackByPlayer(roundState.undoStackByPlayer),
     playerStates: {
       A: { ...roundState.playerStates.A },
       B: { ...roundState.playerStates.B },
@@ -117,14 +147,29 @@ function cloneInteractionEntry(entry) {
   };
 }
 
-function cloneNotes(notes) {
-  if (!notes || typeof notes !== "object" || Array.isArray(notes)) {
-    return {};
-  }
+function createEmptyNotes() {
+  return { A: {}, B: {} };
+}
 
-  return Object.fromEntries(
-    Object.entries(notes).filter(([digit, owner]) => /^[1-9]$/.test(digit) && (owner === "A" || owner === "B")),
-  );
+function cloneNotes(notes) {
+  const source = notes && typeof notes === "object" && !Array.isArray(notes) ? notes : {};
+  const nextNotes = createEmptyNotes();
+
+  ["A", "B"].forEach((seat) => {
+    const seatNotes = source[seat];
+
+    if (!seatNotes || typeof seatNotes !== "object" || Array.isArray(seatNotes)) {
+      return;
+    }
+
+    Object.keys(seatNotes).forEach((digit) => {
+      if (/^[1-9]$/.test(digit) && seatNotes[digit]) {
+        nextNotes[seat][digit] = true;
+      }
+    });
+  });
+
+  return nextNotes;
 }
 
 function readPuzzleBank(difficulty) {
@@ -373,7 +418,7 @@ function createAuthoritativeCell(value) {
       peerEdited: false,
       locked: true,
       claimCorrect: null,
-      notes: {},
+      notes: createEmptyNotes(),
       version: 1,
       lastCommitAt: null,
       lastCommitBy: null,
@@ -387,7 +432,7 @@ function createAuthoritativeCell(value) {
     peerEdited: false,
     locked: false,
     claimCorrect: null,
-    notes: {},
+    notes: createEmptyNotes(),
     version: 0,
     lastCommitAt: null,
     lastCommitBy: null,
@@ -433,6 +478,10 @@ function createAuthoritativeRoundState(options = {}) {
     createdAt,
     updatedAt: createdAt,
     completedAt: null,
+    completedEventId: null,
+    restartEventId: null,
+    restartVotes: { A: false, B: false },
+    undoStackByPlayer: { A: [], B: [] },
     scoringRules: { ...VERSUS_SCORING_RULES },
     timings: { ...ROUND_TIMINGS },
     scores: { A: 0, B: 0 },
@@ -458,7 +507,25 @@ function createAuthoritativeRoundState(options = {}) {
   };
 }
 
-function toPublicRoundState(roundState, now = Date.now()) {
+function toPublicNotes(cell, viewer) {
+  if (viewer !== "A" && viewer !== "B") {
+    return {};
+  }
+
+  const seatNotes = cell.notes?.[viewer];
+
+  if (!seatNotes || typeof seatNotes !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.keys(seatNotes)
+      .filter((digit) => /^[1-9]$/.test(digit) && seatNotes[digit])
+      .map((digit) => [digit, viewer]),
+  );
+}
+
+function toPublicRoundState(roundState, now = Date.now(), viewer = null) {
   if (!roundState || typeof roundState !== "object") {
     return null;
   }
@@ -477,6 +544,12 @@ function toPublicRoundState(roundState, now = Date.now()) {
     createdAt: roundState.createdAt,
     updatedAt: roundState.updatedAt,
     completedAt: roundState.completedAt,
+    completedEventId: roundState.completedEventId || null,
+    restartEventId: roundState.restartEventId || null,
+    restartVotes: {
+      A: roundState.restartVotes?.A === true,
+      B: roundState.restartVotes?.B === true,
+    },
     scoringRules: { ...roundState.scoringRules },
     timings: { ...roundState.timings },
     scores: { ...roundState.scores },
@@ -490,7 +563,10 @@ function toPublicRoundState(roundState, now = Date.now()) {
         freezeRemainingMs: Math.max(0, roundState.playerStates.B.freezeUntil - now),
       },
     },
-    cells: roundState.cells.map(cloneCell),
+    cells: roundState.cells.map((cell) => ({
+      ...cloneCell(cell),
+      notes: toPublicNotes(cell, viewer),
+    })),
     recentEffects: roundState.recentEffects
       .filter((effect) => !Number.isFinite(effect.expiresAt) || effect.expiresAt > now)
       .map((effect) => ({ ...effect })),
@@ -552,11 +628,15 @@ function clearPeerNotesForDigit(cells, index, digit) {
   getRelatedIndexes(index).forEach((relatedIndex) => {
     const relatedCell = cells[relatedIndex];
 
-    if (!relatedCell || relatedCell.given || relatedCell.value || !relatedCell.notes[digit]) {
+    if (!relatedCell || relatedCell.given || relatedCell.value) {
       return;
     }
 
-    delete relatedCell.notes[digit];
+    ["A", "B"].forEach((seat) => {
+      if (relatedCell.notes?.[seat]) {
+        delete relatedCell.notes[seat][digit];
+      }
+    });
   });
 }
 
@@ -567,7 +647,7 @@ function sanitizeAction(action, matchMode) {
     return "clear";
   }
 
-  if (normalized === "note_toggle" && matchMode === "coop") {
+  if (normalized === "note_toggle") {
     return "note_toggle";
   }
 
@@ -690,6 +770,27 @@ function isPlayerFrozen(roundState, player, now = Date.now()) {
   return Number(roundState.playerStates[player]?.freezeUntil || 0) > now;
 }
 
+function recordUndoEntry(nextRoundState, player, entry) {
+  if (player !== "A" && player !== "B") {
+    return;
+  }
+
+  const stack = nextRoundState.undoStackByPlayer[player];
+
+  stack.push({
+    cellIndex: entry.cellIndex,
+    action: entry.action,
+    digit: entry.digit,
+    scored: entry.scored === true,
+    before: cloneCell(entry.before),
+    after: cloneCell(entry.after),
+  });
+
+  if (stack.length > MAX_UNDO_STACK_SIZE) {
+    stack.splice(0, stack.length - MAX_UNDO_STACK_SIZE);
+  }
+}
+
 function applyVersusCellSubmit(nextRoundState, cell, player, digit, now) {
   const solutionDigit = nextRoundState.solution[cell.index];
   const isCorrect = solutionDigit === digit;
@@ -699,8 +800,8 @@ function applyVersusCellSubmit(nextRoundState, cell, player, digit, now) {
   cell.owner = player;
   cell.peerEdited = false;
   cell.claimCorrect = isCorrect;
-  cell.notes = {};
-  cell.locked = true;
+  cell.notes = createEmptyNotes();
+  cell.locked = isCorrect;
   cell.lastCommitAt = now;
   cell.lastCommitBy = player;
   cell.version += 1;
@@ -722,6 +823,36 @@ function applyVersusCellSubmit(nextRoundState, cell, player, digit, now) {
     cellVersionAfterClaim: cell.version,
     resolvedLosers: {},
   });
+
+  return isCorrect;
+}
+
+function clearVersusOwnCell(nextRoundState, cell, player, now) {
+  cell.value = "";
+  cell.owner = null;
+  cell.peerEdited = false;
+  cell.claimCorrect = null;
+  cell.locked = false;
+  cell.notes = createEmptyNotes();
+  cell.lastCommitAt = now;
+  cell.lastCommitBy = player;
+  cell.version += 1;
+  delete nextRoundState.interactionLedger.byCell[cell.index];
+}
+
+function applyNoteToggle(nextRoundState, cell, player, digit, now) {
+  const seatNotes = cell.notes[player] || (cell.notes[player] = {});
+
+  if (seatNotes[digit]) {
+    delete seatNotes[digit];
+  } else {
+    seatNotes[digit] = true;
+  }
+
+  cell.lastCommitAt = now;
+  cell.lastCommitBy = player;
+  cell.version += 1;
+  delete nextRoundState.interactionLedger.byCell[cell.index];
 }
 
 function applyCoopCellSubmit(nextRoundState, cell, player, action, digit, now) {
@@ -732,16 +863,7 @@ function applyCoopCellSubmit(nextRoundState, cell, player, action, digit, now) {
       throw new Error("Cannot edit notes on a filled cell.");
     }
 
-    if (cell.notes[digit]) {
-      delete cell.notes[digit];
-    } else {
-      cell.notes[digit] = player;
-    }
-
-    cell.lastCommitAt = now;
-    cell.lastCommitBy = player;
-    cell.version += 1;
-    delete nextRoundState.interactionLedger.byCell[cellIndex];
+    applyNoteToggle(nextRoundState, cell, player, digit, now);
     return;
   }
 
@@ -751,8 +873,9 @@ function applyCoopCellSubmit(nextRoundState, cell, player, action, digit, now) {
       cell.owner = null;
       cell.peerEdited = false;
       cell.claimCorrect = null;
+      cell.notes = createEmptyNotes();
     } else {
-      cell.notes = {};
+      cell.notes[player] = {};
     }
 
     cell.lastCommitAt = now;
@@ -815,7 +938,7 @@ function applyCoopCellSubmit(nextRoundState, cell, player, action, digit, now) {
   }
 
   cell.claimCorrect = null;
-  cell.notes = {};
+  cell.notes = createEmptyNotes();
   cell.lastCommitAt = now;
   cell.lastCommitBy = player;
   cell.version += 1;
@@ -829,19 +952,34 @@ function applyCoopCellSubmit(nextRoundState, cell, player, action, digit, now) {
   });
 }
 
-function maybeCompleteRound(nextRoundState, now) {
-  const allClaimed = nextRoundState.matchMode === "versus"
-    ? nextRoundState.cells.every((cell) => cell.given || cell.locked)
-    : nextRoundState.cells.every((cell) => cell.given || /^[1-9]$/.test(cell.value));
-
-  if (allClaimed) {
-    nextRoundState.status = "completed";
-    nextRoundState.completedAt = now;
-    nextRoundState.recentEffects = [];
-    nextRoundState.interactionLedger.byCell = {};
-    nextRoundState.playerStates.A.freezeUntil = 0;
-    nextRoundState.playerStates.B.freezeUntil = 0;
+function isCellSolved(nextRoundState, cell, index) {
+  if (cell.given) {
+    return true;
   }
+
+  return cell.locked || cell.value === nextRoundState.solution[index];
+}
+
+function maybeCompleteRound(nextRoundState, now) {
+  if (nextRoundState.status !== "active") {
+    return;
+  }
+
+  const roundSolved = nextRoundState.cells.every((cell, index) => isCellSolved(nextRoundState, cell, index));
+
+  if (!roundSolved) {
+    return;
+  }
+
+  nextRoundState.status = "completed";
+  nextRoundState.completedAt = now;
+  nextRoundState.completedEventId = nextRoundState.completedEventId || `complete-${nextRoundState.roundId}-${now}`;
+  nextRoundState.restartVotes = { A: false, B: false };
+  nextRoundState.undoStackByPlayer = { A: [], B: [] };
+  nextRoundState.recentEffects = [];
+  nextRoundState.interactionLedger.byCell = {};
+  nextRoundState.playerStates.A.freezeUntil = 0;
+  nextRoundState.playerStates.B.freezeUntil = 0;
 }
 
 function canQualifyForVersusContest(nextRoundState, cell, player, digit, now, options = {}) {
@@ -946,10 +1084,6 @@ function submitAuthoritativeCell(roundState, options = {}) {
     throw new Error("Digit is invalid.");
   }
 
-  if (roundState.matchMode === "versus" && action !== "set") {
-    throw new Error("Versus only accepts direct value submissions.");
-  }
-
   const nextRoundState = cloneRoundState(roundState);
   pruneExpiredEffects(nextRoundState, now);
   pruneInteractionLedger(nextRoundState, now);
@@ -961,9 +1095,10 @@ function submitAuthoritativeCell(roundState, options = {}) {
   }
 
   registerRequest(nextRoundState, requestId, player, clientSeq);
+  const beforeCell = cloneCell(roundState.cells[cellIndex]);
 
   if (nextRoundState.matchMode === "versus") {
-    if (cell.locked || cell.value) {
+    if (cell.locked) {
       const contest = canQualifyForVersusContest(nextRoundState, cell, player, digit, now, {
         observedCellVersion,
         observedCellLocked,
@@ -974,11 +1109,36 @@ function submitAuthoritativeCell(roundState, options = {}) {
       }
 
       applyVersusContestLoss(nextRoundState, cell, player, now, contest.interaction);
-    } else {
-      applyVersusCellSubmit(nextRoundState, cell, player, digit, now);
+    } else if (cell.value) {
+      if (cell.owner !== player) {
+        throw new Error("Cell is already claimed.");
+      }
+
+      if (action === "note_toggle") {
+        throw new Error("Cannot edit notes on a filled cell.");
+      }
+
+      if (action === "clear") {
+        clearVersusOwnCell(nextRoundState, cell, player, now);
+        recordUndoEntry(nextRoundState, player, { cellIndex, action, digit, before: beforeCell, after: cell });
+      } else if (!applyVersusCellSubmit(nextRoundState, cell, player, digit, now)) {
+        recordUndoEntry(nextRoundState, player, { cellIndex, action, digit, before: beforeCell, after: cell });
+      }
+    } else if (action === "note_toggle") {
+      applyNoteToggle(nextRoundState, cell, player, digit, now);
+      recordUndoEntry(nextRoundState, player, { cellIndex, action, digit, before: beforeCell, after: cell });
+    } else if (action === "clear") {
+      cell.notes[player] = {};
+      cell.lastCommitAt = now;
+      cell.lastCommitBy = player;
+      cell.version += 1;
+      recordUndoEntry(nextRoundState, player, { cellIndex, action, digit, before: beforeCell, after: cell });
+    } else if (!applyVersusCellSubmit(nextRoundState, cell, player, digit, now)) {
+      recordUndoEntry(nextRoundState, player, { cellIndex, action, digit, before: beforeCell, after: cell });
     }
   } else {
     applyCoopCellSubmit(nextRoundState, cell, player, action, digit, now);
+    recordUndoEntry(nextRoundState, player, { cellIndex, action, digit, before: beforeCell, after: cell });
   }
 
   delete cell.index;
@@ -993,6 +1153,160 @@ function submitAuthoritativeCell(roundState, options = {}) {
   };
 }
 
+function undoAuthoritativeCell(roundState, options = {}) {
+  if (!roundState || typeof roundState !== "object") {
+    throw new Error("Round state is required.");
+  }
+
+  const player = options.player === "A" || options.player === "B" ? options.player : "";
+  const requestId = sanitizeRequestId(options.requestId);
+  const now = Number.isFinite(options.receivedAt) ? Number(options.receivedAt) : Date.now();
+
+  if (!player) {
+    throw new Error("Player seat is required.");
+  }
+
+  if (roundState.status !== "active") {
+    throw new Error("Round is not active.");
+  }
+
+  if (options.roundId !== roundState.roundId) {
+    throw new Error("Round has changed. Refresh to continue.");
+  }
+
+  if (!requestId) {
+    throw new Error("Request id is required.");
+  }
+
+  if (isDuplicateRequest(roundState, requestId)) {
+    return {
+      roundState,
+      duplicate: true,
+      accepted: false,
+    };
+  }
+
+  const stack = roundState.undoStackByPlayer?.[player] || [];
+  const entry = stack[stack.length - 1];
+
+  if (!entry) {
+    throw new Error("Nothing to undo.");
+  }
+
+  const currentCell = roundState.cells[entry.cellIndex];
+
+  if (!currentCell || currentCell.given) {
+    throw new Error("That move can no longer be undone.");
+  }
+
+  if (
+    currentCell.version !== entry.after.version
+    || currentCell.value !== entry.after.value
+    || currentCell.owner !== entry.after.owner
+  ) {
+    throw new Error("That move can no longer be undone.");
+  }
+
+  if (roundState.matchMode === "versus" && entry.scored) {
+    throw new Error("Locked claims cannot be undone.");
+  }
+
+  const nextRoundState = cloneRoundState(roundState);
+  pruneExpiredEffects(nextRoundState, now);
+  pruneInteractionLedger(nextRoundState, now);
+  registerRequest(nextRoundState, requestId, player, Number(options.clientSeq));
+
+  const nextStack = nextRoundState.undoStackByPlayer[player];
+  nextStack.pop();
+
+  const restoredCell = cloneCell(entry.before);
+  restoredCell.version = entry.before.version;
+  restoredCell.lastCommitAt = now;
+  restoredCell.lastCommitBy = player;
+  nextRoundState.cells[entry.cellIndex] = restoredCell;
+  delete nextRoundState.interactionLedger.byCell[entry.cellIndex];
+
+  nextRoundState.updatedAt = now;
+  nextRoundState.revision += 1;
+  maybeCompleteRound(nextRoundState, now);
+
+  return {
+    roundState: nextRoundState,
+    duplicate: false,
+    accepted: true,
+    undoneCellIndex: entry.cellIndex,
+  };
+}
+
+function setAuthoritativeRestartVote(roundState, options = {}) {
+  if (!roundState || typeof roundState !== "object") {
+    throw new Error("Round state is required.");
+  }
+
+  const player = options.player === "A" || options.player === "B" ? options.player : "";
+  const requestId = sanitizeRequestId(options.requestId);
+  const now = Number.isFinite(options.receivedAt) ? Number(options.receivedAt) : Date.now();
+  const vote = options.vote !== false;
+
+  if (!player) {
+    throw new Error("Player seat is required.");
+  }
+
+  if (options.roundId !== roundState.roundId) {
+    throw new Error("Round has changed. Refresh to continue.");
+  }
+
+  if (roundState.status !== "active" && !(roundState.status === "completed" && vote === false)) {
+    throw new Error("Round is not active.");
+  }
+
+  if (isDuplicateRequest(roundState, requestId)) {
+    return {
+      roundState,
+      duplicate: true,
+      restarted: false,
+    };
+  }
+
+  const nextRoundState = cloneRoundState(roundState);
+  pruneExpiredEffects(nextRoundState, now);
+  registerRequest(nextRoundState, requestId, player, Number(options.clientSeq));
+  nextRoundState.restartVotes[player] = vote;
+
+  if (!nextRoundState.restartVotes.A || !nextRoundState.restartVotes.B) {
+    nextRoundState.updatedAt = now;
+    nextRoundState.revision += 1;
+    return {
+      roundState: nextRoundState,
+      restarted: false,
+    };
+  }
+
+  const createdAt = roundState.createdAt;
+  const freshCells = nextRoundState.puzzle.split("").map((value) => createAuthoritativeCell(value));
+
+  nextRoundState.status = "active";
+  nextRoundState.completedAt = null;
+  nextRoundState.completedEventId = null;
+  nextRoundState.restartVotes = { A: false, B: false };
+  nextRoundState.restartEventId = `restart-${roundState.roundId}-${now}`;
+  nextRoundState.undoStackByPlayer = { A: [], B: [] };
+  nextRoundState.scores = { A: 0, B: 0 };
+  nextRoundState.cells = freshCells;
+  nextRoundState.recentEffects = [];
+  nextRoundState.interactionLedger = { byCell: {} };
+  nextRoundState.playerStates.A.freezeUntil = 0;
+  nextRoundState.playerStates.B.freezeUntil = 0;
+  nextRoundState.createdAt = createdAt;
+  nextRoundState.updatedAt = now;
+  nextRoundState.revision += 1;
+
+  return {
+    roundState: nextRoundState,
+    restarted: true,
+  };
+}
+
 module.exports = {
   ROUND_ENGINE_VERSION,
   ROUND_PROTOCOL_VERSION,
@@ -1003,7 +1317,9 @@ module.exports = {
   getPuzzleConfigForSelection,
   isPlayerFrozen,
   resolveAuthoritativeSelection,
+  setAuthoritativeRestartVote,
   submitAuthoritativeCell,
   toPublicRoundState,
+  undoAuthoritativeCell,
   updateAuthoritativeRoundState,
 };

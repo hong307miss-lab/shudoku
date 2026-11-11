@@ -5,8 +5,10 @@ const {
   ROUND_PROTOCOL_VERSION,
   createAuthoritativeRoundState,
   resolveAuthoritativeSelection,
+  setAuthoritativeRestartVote,
   submitAuthoritativeCell,
   toPublicRoundState,
+  undoAuthoritativeCell,
 } = require("./room-round-engine");
 
 const ROOM_REJOIN_GRACE_MS = 15_000;
@@ -169,9 +171,10 @@ function assignRoomSeats(room) {
   return activePlayers;
 }
 
-function buildRoomSnapshot(room) {
+function buildRoomSnapshot(room, viewerSeat = null) {
   const activePlayers = assignRoomSeats(room);
   normalizeRoomReadyState(room);
+  const viewer = viewerSeat === "A" || viewerSeat === "B" ? viewerSeat : null;
 
   return {
     protocolVersion: ROUND_PROTOCOL_VERSION,
@@ -198,7 +201,7 @@ function buildRoomSnapshot(room) {
     },
     revision: room.revision,
     sharedState: room.sharedState,
-    roundState: room.roundState ? toPublicRoundState(room.roundState) : null,
+    roundState: room.roundState ? toPublicRoundState(room.roundState, Date.now(), viewer) : null,
     seats: room.seats,
     roster: activePlayers.map((player) => ({
       clientId: player.clientId,
@@ -221,9 +224,27 @@ function emitRoomSnapshot(room, eventName = "room:snapshot") {
 
   room.updatedAt = Date.now();
 
-  if (io) {
-    io.to(room.roomId).emit(eventName, buildRoomSnapshot(room));
+  if (!io) {
+    return;
   }
+
+  const roomSockets = io.sockets?.adapter?.rooms?.get(room.roomId);
+
+  if (!roomSockets || roomSockets.size === 0) {
+    io.to(room.roomId).emit(eventName, buildRoomSnapshot(room));
+    return;
+  }
+
+  roomSockets.forEach((socketId) => {
+    const socket = io.sockets.sockets.get(socketId);
+
+    if (!socket) {
+      return;
+    }
+
+    const player = getSocketPlayer(room, socket);
+    socket.emit(eventName, buildRoomSnapshot(room, player ? player.operator : null));
+  });
 }
 
 function createRoom(options) {
@@ -593,9 +614,9 @@ function joinRoom(socket, room, payload = {}) {
   assertRoomCapacity(room, socket);
   socket.data.clientId = identity.clientId;
   socket.data.identityKey = identity.identityKey;
-  upsertPlayerInRoom(room, socket, payload, identity);
+  const joinedPlayer = upsertPlayerInRoom(room, socket, payload, identity);
   emitRoomSnapshot(room);
-  return buildRoomSnapshot(room);
+  return buildRoomSnapshot(room, joinedPlayer ? joinedPlayer.operator : null);
 }
 
 function getRoomPlayerByOperator(room, operator) {
@@ -635,7 +656,7 @@ function setPlayerReadySelection(room, socket, selection) {
   }
 
   emitRoomSnapshot(room);
-  return buildRoomSnapshot(room);
+  return buildRoomSnapshot(room, player.operator);
 }
 
 function ensureAuthoritativeRoomRound(room, selection) {
@@ -699,7 +720,7 @@ function startRoomRound(room, socket, selection) {
 
   ensureAuthoritativeRoomRound(room, normalizedSelection);
   emitRoomSnapshot(room);
-  return buildRoomSnapshot(room);
+  return buildRoomSnapshot(room, player.operator);
 }
 
 function resetRoomServiceState() {
@@ -817,8 +838,8 @@ function attachRoomSocketHandlers(io) {
         }
 
         const room = rooms.get(roomId);
-        upsertPlayerInRoom(room, socket, payload);
-        const snapshot = buildRoomSnapshot(room);
+        const player = upsertPlayerInRoom(room, socket, payload);
+        const snapshot = buildRoomSnapshot(room, player ? player.operator : null);
         callback({ ok: true, snapshot });
       } catch (error) {
         callback({ ok: false, error: error.message || "Ping failed." });
@@ -835,13 +856,14 @@ function attachRoomSocketHandlers(io) {
         }
 
         const room = rooms.get(roomId);
-        upsertPlayerInRoom(room, socket, payload);
+        const player = upsertPlayerInRoom(room, socket, payload);
+        const viewer = player ? player.operator : null;
 
         if (room.roundState) {
           callback({
             ok: false,
             error: `This multiplayer round uses protocol v${ROUND_PROTOCOL_VERSION}. Refresh to continue.`,
-            snapshot: buildRoomSnapshot(room),
+            snapshot: buildRoomSnapshot(room, viewer),
           });
           return;
         }
@@ -852,7 +874,7 @@ function attachRoomSocketHandlers(io) {
           callback({
             ok: false,
             error: "Revision mismatch.",
-            snapshot: buildRoomSnapshot(room),
+            snapshot: buildRoomSnapshot(room, viewer),
           });
           return;
         }
@@ -871,7 +893,7 @@ function attachRoomSocketHandlers(io) {
         room.sharedState = nextSharedState;
         room.revision += 1;
         emitRoomSnapshot(room);
-        callback({ ok: true, snapshot: buildRoomSnapshot(room) });
+        callback({ ok: true, snapshot: buildRoomSnapshot(room, viewer) });
       } catch (error) {
         callback({ ok: false, error: error.message || "State sync failed." });
       }
@@ -887,13 +909,11 @@ function attachRoomSocketHandlers(io) {
         }
 
         const room = rooms.get(roomId);
-        upsertPlayerInRoom(room, socket, payload);
+        const player = upsertPlayerInRoom(room, socket, payload);
 
         if (!room.roundState) {
           throw new Error("Round is not active.");
         }
-
-        const player = getSocketPlayer(room, socket);
 
         if (!player || (player.operator !== "A" && player.operator !== "B")) {
           throw new Error("Join the room as Player A or Player B before submitting.");
@@ -919,17 +939,121 @@ function attachRoomSocketHandlers(io) {
         callback({
           ok: true,
           duplicate: result.duplicate,
-          snapshot: buildRoomSnapshot(room),
+          snapshot: buildRoomSnapshot(room, player.operator),
         });
       } catch (error) {
         const { rooms, socketRoomIndex } = getRoomServiceState();
         const roomId = socketRoomIndex.get(socket.id);
         const room = roomId && rooms.has(roomId) ? rooms.get(roomId) : null;
+        const viewer = room ? getSocketPlayer(room, socket) : null;
 
         callback({
           ok: false,
           error: error.message || "Cell submission failed.",
-          snapshot: room ? buildRoomSnapshot(room) : undefined,
+          snapshot: room ? buildRoomSnapshot(room, viewer ? viewer.operator : null) : undefined,
+        });
+      }
+    });
+
+    socket.on("room:cell_undo", (payload = {}, callback = () => {}) => {
+      try {
+        const { rooms, socketRoomIndex } = getRoomServiceState();
+        const roomId = socketRoomIndex.get(socket.id);
+
+        if (!roomId || !rooms.has(roomId)) {
+          throw new Error("Room not found.");
+        }
+
+        const room = rooms.get(roomId);
+        const player = upsertPlayerInRoom(room, socket, payload);
+
+        if (!room.roundState) {
+          throw new Error("Round is not active.");
+        }
+
+        if (!player || (player.operator !== "A" && player.operator !== "B")) {
+          throw new Error("Join the room as Player A or Player B before undoing.");
+        }
+
+        const result = undoAuthoritativeCell(room.roundState, {
+          player: player.operator,
+          requestId: payload.requestId,
+          roundId: payload.roundId,
+          clientSeq: payload.clientSeq,
+          receivedAt: Date.now(),
+        });
+
+        room.roundState = result.roundState;
+        room.revision += 1;
+        emitRoomSnapshot(room);
+        callback({
+          ok: true,
+          duplicate: result.duplicate,
+          undone: result.undone,
+          snapshot: buildRoomSnapshot(room, player.operator),
+        });
+      } catch (error) {
+        const { rooms, socketRoomIndex } = getRoomServiceState();
+        const roomId = socketRoomIndex.get(socket.id);
+        const room = roomId && rooms.has(roomId) ? rooms.get(roomId) : null;
+        const viewer = room ? getSocketPlayer(room, socket) : null;
+
+        callback({
+          ok: false,
+          error: error.message || "Undo failed.",
+          snapshot: room ? buildRoomSnapshot(room, viewer ? viewer.operator : null) : undefined,
+        });
+      }
+    });
+
+    socket.on("room:restart_vote", (payload = {}, callback = () => {}) => {
+      try {
+        const { rooms, socketRoomIndex } = getRoomServiceState();
+        const roomId = socketRoomIndex.get(socket.id);
+
+        if (!roomId || !rooms.has(roomId)) {
+          throw new Error("Room not found.");
+        }
+
+        const room = rooms.get(roomId);
+        const player = upsertPlayerInRoom(room, socket, payload);
+
+        if (!room.roundState) {
+          throw new Error("Round is not active.");
+        }
+
+        if (!player || (player.operator !== "A" && player.operator !== "B")) {
+          throw new Error("Join the room as Player A or Player B before restarting.");
+        }
+
+        const result = setAuthoritativeRestartVote(room.roundState, {
+          player: player.operator,
+          requestId: payload.requestId,
+          roundId: payload.roundId,
+          vote: payload.vote !== false,
+          clientSeq: payload.clientSeq,
+          receivedAt: Date.now(),
+        });
+
+        room.roundState = result.roundState;
+        room.revision += 1;
+        emitRoomSnapshot(room);
+        callback({
+          ok: true,
+          duplicate: result.duplicate,
+          restarted: result.restarted,
+          snapshot: buildRoomSnapshot(room, player.operator),
+        });
+      } catch (error) {
+        const { rooms, socketRoomIndex } = getRoomServiceState();
+        const roomId = socketRoomIndex.get(socket.id);
+        const room = roomId && rooms.has(roomId) ? rooms.get(roomId) : null;
+        const viewer = room ? getSocketPlayer(room, socket) : null;
+
+        callback({
+          ok: false,
+          error: error.message || "Restart vote failed.",
+          snapshot: room ? buildRoomSnapshot(room, viewer ? viewer.operator : null) : undefined,
         });
       }
     });

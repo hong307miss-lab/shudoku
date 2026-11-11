@@ -239,11 +239,17 @@ const state = {
     revision: 0,
     protocolVersion: 0,
     effects: [],
+    completedEventId: "",
+    restartEventId: "",
+    restartVotes: { A: false, B: false },
+    scores: { A: 0, B: 0 },
     playerStates: {
       A: { freezeUntil: 0, freezeRemainingMs: 0 },
       B: { freezeUntil: 0, freezeRemainingMs: 0 },
     },
   },
+  shownCompletionEventId: "",
+  soloUndoStack: [],
   ranked: {
     playerName: readStoredRankedPlayerName(),
     leaderboard: [],
@@ -2485,6 +2491,10 @@ function resetActiveRoundState() {
     revision: 0,
     protocolVersion: 0,
     effects: [],
+    completedEventId: "",
+    restartEventId: "",
+    restartVotes: { A: false, B: false },
+    scores: { A: 0, B: 0 },
     playerStates: getDefaultActiveRoundPlayerStates(),
   };
 }
@@ -2654,6 +2664,17 @@ function applyAuthoritativeRoundState(roundState) {
     return;
   }
 
+  const previousRestartEventId = state.activeRound.restartEventId || "";
+  const nextRestartEventId = typeof roundState.restartEventId === "string" ? roundState.restartEventId : "";
+
+  if (nextRestartEventId && nextRestartEventId !== previousRestartEventId) {
+    built.session.timerStartedAt = Date.now();
+    built.session.elapsedSeconds = 0;
+    built.session.isPaused = false;
+    built.session.hasWon = false;
+    state.shownCompletionEventId = "";
+  }
+
   state.difficulty = roundState.difficulty || state.difficulty;
   if (roundState.status === "active" && roundState.sessionKey) {
     state.gameStart.startedSessionKey = roundState.sessionKey;
@@ -2670,6 +2691,16 @@ function applyAuthoritativeRoundState(roundState) {
     effects: Array.isArray(roundState.recentEffects)
       ? roundState.recentEffects.map((effect) => ({ ...effect }))
       : [],
+    completedEventId: typeof roundState.completedEventId === "string" ? roundState.completedEventId : "",
+    restartEventId: typeof roundState.restartEventId === "string" ? roundState.restartEventId : "",
+    restartVotes: {
+      A: roundState.restartVotes?.A === true,
+      B: roundState.restartVotes?.B === true,
+    },
+    scores: {
+      A: Number(roundState.scores?.A || 0),
+      B: Number(roundState.scores?.B || 0),
+    },
     playerStates: roundState.playerStates
       ? {
         A: {
@@ -4168,20 +4199,23 @@ function getConflictSummary(cells) {
 }
 
 function getDigitCounts(cells) {
+  const versus = isVersusMode();
+
   return cells.reduce((counts, cell) => {
-    if (cell.value && !hasCellDuel(cell)) {
-      counts[cell.value] = (counts[cell.value] || 0) + 1;
+    if (!cell.value || hasCellDuel(cell)) {
+      return counts;
     }
 
+    if (versus && !cell.given && !cell.locked) {
+      return counts;
+    }
+
+    counts[cell.value] = (counts[cell.value] || 0) + 1;
     return counts;
   }, {});
 }
 
 function isDigitCompleted(digit, cells = getCurrentSession().cells) {
-  if (isVersusMode()) {
-    return false;
-  }
-
   const counts = getDigitCounts(cells);
   return (counts[digit] || 0) >= 9;
 }
@@ -4206,14 +4240,21 @@ function openWinModal() {
   if (winTitle && winCopy) {
     if (isVersusMode()) {
       const summary = getVersusScoreSummary(session);
+      const scores = hasAuthoritativeMultiplayerRound() ? state.activeRound.scores : summary.scores;
+      const scoreA = Number(scores.A || 0);
+      const scoreB = Number(scores.B || 0);
+      const winner = scoreA === scoreB ? "tie" : scoreA > scoreB ? "A" : "B";
 
-      if (summary.winner === "tie") {
+      if (winner === "tie") {
         winTitle.textContent = "Tie Game";
-        winCopy.textContent = `Final score A ${summary.scores.A} : B ${summary.scores.B}.`;
+        winCopy.textContent = `Final score A ${scoreA} : B ${scoreB}.`;
       } else {
-        winTitle.textContent = `Player ${summary.winner} Wins`;
-        winCopy.textContent = `Final score A ${summary.scores.A} : B ${summary.scores.B}.`;
+        winTitle.textContent = `Player ${winner} Wins`;
+        winCopy.textContent = `Final score A ${scoreA} : B ${scoreB}.`;
       }
+    } else if (isCoopMode()) {
+      winTitle.textContent = "Co-op Complete";
+      winCopy.textContent = `Solved together in ${formattedTime}. Press Next Round when both players are ready.`;
     } else if (isRankedSoloMode()) {
       winTitle.textContent = "Ranked Clear";
       winCopy.textContent = session.rankedRank
@@ -4244,6 +4285,28 @@ function updateGameStateAfterBoardChange() {
   const { conflictIndexes, message } = getConflictSummary(session.cells);
   const boardFilled = isBoardFilled(session.cells);
   const previousHasWon = session.hasWon;
+
+  if (state.activeRound.status === "active" && hasAuthoritativeMultiplayerRound()) {
+    state.shownCompletionEventId = "";
+  }
+
+  if (isCompletedAuthoritativeMultiplayerRound()) {
+    finalizeSessionTimer(session);
+    session.hasWon = true;
+    state.feedback = isVersusMode()
+      ? getVersusFinishMessage(session)
+      : `Co-op board complete in ${formatElapsedTime(getElapsedSeconds(session))}.`;
+    updateFeedback(state.feedback, "success");
+    syncTimerDisplay();
+    saveState();
+
+    if (state.shownCompletionEventId !== state.activeRound.completedEventId) {
+      state.shownCompletionEventId = state.activeRound.completedEventId;
+      openWinModal();
+    }
+
+    return;
+  }
 
   if (!roundStarted) {
     if (session.hasWon) {
@@ -4401,7 +4464,6 @@ function renderControls() {
 
   entryModeControls.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("active", button.dataset.entryMode === state.entryMode);
-    button.disabled = isVersusMode() && button.dataset.entryMode !== "value";
   });
 
   if (statusDifficulty) {
@@ -4553,7 +4615,7 @@ function renderControls() {
 
 function renderKeypad() {
   const session = getCurrentSession();
-  const digitCounts = isVersusMode() ? {} : getDigitCounts(session.cells);
+  const digitCounts = getDigitCounts(session.cells);
   const inputsLocked = !isSessionInteractive(session);
   let activeDigitChanged = false;
 
@@ -4575,13 +4637,237 @@ function renderKeypad() {
   const eraseButton = keypad.querySelector("[data-action=\"erase\"]");
 
   if (eraseButton) {
-    const eraseDisabled = inputsLocked || isVersusMode();
-    eraseButton.disabled = eraseDisabled;
-    eraseButton.setAttribute("aria-disabled", eraseDisabled ? "true" : "false");
+    eraseButton.disabled = inputsLocked;
+    eraseButton.setAttribute("aria-disabled", inputsLocked ? "true" : "false");
+  }
+
+  const undoButton = keypad.querySelector("[data-action=\"undo\"]");
+
+  if (undoButton) {
+    const undoDisabled = !canUndoLastMove(session);
+    undoButton.disabled = undoDisabled;
+    undoButton.setAttribute("aria-disabled", undoDisabled ? "true" : "false");
+  }
+
+  const restartButton = keypad.querySelector("[data-action=\"restart\"]");
+
+  if (restartButton) {
+    const restartDisabled = !canRestartCurrentRound(session);
+    const votes = state.activeRound.restartVotes || { A: false, B: false };
+    const voteCount = (votes.A ? 1 : 0) + (votes.B ? 1 : 0);
+
+    restartButton.textContent = hasAuthoritativeMultiplayerRound() && voteCount > 0
+      ? `Restart ${voteCount}/2`
+      : "Restart";
+    restartButton.disabled = restartDisabled;
+    restartButton.setAttribute("aria-disabled", restartDisabled ? "true" : "false");
   }
 
   if (activeDigitChanged) {
     renderControls();
+  }
+}
+
+function canUndoLastMove(session = getCurrentSession()) {
+  if (session.hasWon) {
+    return false;
+  }
+
+  if (hasAuthoritativeMultiplayerRound()) {
+    return state.activeRound.status === "active" && !isSelfFrozen();
+  }
+
+  return getSoloUndoStackForCurrentSession().length > 0;
+}
+
+function canRestartCurrentRound(session = getCurrentSession()) {
+  if (hasAuthoritativeMultiplayerRound()) {
+    return state.activeRound.status === "active";
+  }
+
+  return isCurrentRoundStarted(session) || session.hasWon;
+}
+
+const SOLO_UNDO_STACK_LIMIT = 64;
+
+function snapshotSoloCell(cell) {
+  if (!cell) {
+    return null;
+  }
+
+  return {
+    value: typeof cell.value === "string" ? cell.value : "",
+    owner: cell.owner === "A" || cell.owner === "B" || cell.owner === "given" ? cell.owner : null,
+    peerEdited: cell.peerEdited === true,
+    claimCorrect: cell.claimCorrect === true ? true : cell.claimCorrect === false ? false : null,
+    notes: { ...(cell.notes || {}) },
+    duel: cell.duel ? { ...cell.duel } : null,
+    harmonyAt: cell.harmonyAt ?? null,
+    harmonyDigit: cell.harmonyDigit ?? null,
+    lastMoveAt: cell.lastMoveAt ?? null,
+    lastMoveBy: cell.lastMoveBy === "A" || cell.lastMoveBy === "B" ? cell.lastMoveBy : null,
+  };
+}
+
+function restoreSoloCell(cell, snapshot) {
+  if (!cell || !snapshot) {
+    return;
+  }
+
+  cell.value = snapshot.value;
+  cell.owner = snapshot.owner;
+  cell.peerEdited = snapshot.peerEdited;
+  cell.claimCorrect = snapshot.claimCorrect;
+  cell.notes = { ...snapshot.notes };
+  cell.duel = snapshot.duel ? { ...snapshot.duel } : null;
+  cell.harmonyAt = snapshot.harmonyAt;
+  cell.harmonyDigit = snapshot.harmonyDigit;
+  cell.lastMoveAt = snapshot.lastMoveAt;
+  cell.lastMoveBy = snapshot.lastMoveBy;
+}
+
+function getSoloUndoStackForCurrentSession() {
+  const session = getCurrentSession();
+  const sessionKey = getSessionKey(session.difficulty, session.puzzleId);
+
+  return state.soloUndoStack.filter((entry) => entry.sessionKey === sessionKey);
+}
+
+function recordSoloUndoEntry(entry) {
+  if (!entry || !entry.before || !entry.after) {
+    return;
+  }
+
+  const session = getCurrentSession();
+
+  state.soloUndoStack.push({
+    sessionKey: getSessionKey(session.difficulty, session.puzzleId),
+    cellIndex: entry.cellIndex,
+    before: entry.before,
+    after: entry.after,
+  });
+
+  if (state.soloUndoStack.length > SOLO_UNDO_STACK_LIMIT) {
+    state.soloUndoStack.splice(0, state.soloUndoStack.length - SOLO_UNDO_STACK_LIMIT);
+  }
+}
+
+function applySoloUndo() {
+  if (hasAuthoritativeMultiplayerRound()) {
+    void requestRoomUndo();
+    return;
+  }
+
+  const session = getCurrentSession();
+  const entry = getSoloUndoStackForCurrentSession().pop();
+
+  if (!entry) {
+    state.feedback = "Nothing to undo.";
+    updateFeedback(state.feedback);
+    return;
+  }
+
+  state.soloUndoStack = state.soloUndoStack.filter((item) => item !== entry);
+
+  const cell = session.cells[entry.cellIndex];
+
+  if (cell && !cell.given) {
+    restoreSoloCell(cell, entry.before);
+  }
+
+  state.feedback = "Undid your last edit.";
+  updateFeedback(state.feedback);
+  saveState();
+  updateGameStateAfterBoardChange();
+  renderControls();
+  renderKeypad();
+  renderBoard();
+}
+
+function restartSoloRound() {
+  const session = getCurrentSession();
+
+  if (!isCurrentRoundStarted(session) && !session.hasWon) {
+    state.feedback = "Start the round before restarting it.";
+    updateFeedback(state.feedback);
+    return;
+  }
+
+  const selection = getCurrentSelection();
+
+  resetSoloUndoStack();
+  state.shownCompletionEventId = "";
+  state.selectedIndex = null;
+  state.activeDigit = null;
+  state.sessions[selection.sessionKey] = createSession(selection.difficulty);
+  state.sessions[selection.sessionKey].timerStartedAt = Date.now();
+  state.feedback = isRankedSoloMode()
+    ? `Ranked run restarted on ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`
+    : `Restarted ${difficultyLabels[selection.difficulty]} puzzle ${selection.puzzleIndex + 1}.`;
+  updateFeedback(state.feedback);
+  saveState();
+  closeWinModal();
+  updateGameStateAfterBoardChange();
+  renderControls();
+  renderKeypad();
+  renderBoard();
+
+  if (isRankedSoloMode()) {
+    void refreshRankedLeaderboard({ force: true });
+  }
+}
+
+function resetSoloUndoStack() {
+  state.soloUndoStack = [];
+}
+
+function requestRestartCurrentRound() {
+  if (hasAuthoritativeMultiplayerRound()) {
+    void requestRoomRestart(true);
+    return;
+  }
+
+  restartSoloRound();
+}
+
+async function requestRoomUndo() {
+  if (!state.roomId || !isAuthoritativeMultiplayerRoundActive()) {
+    state.feedback = "No active multiplayer round to undo.";
+    updateFeedback(state.feedback);
+    return;
+  }
+
+  try {
+    await roomSocketRequest("room:cell_undo", {
+      roundId: state.activeRound.id,
+      requestId: createRoomRequestId(),
+      clientSeq: ++roomCellRequestSeq,
+    });
+    state.feedback = "Undid your last edit.";
+    updateFeedback(state.feedback);
+  } catch (error) {
+    state.feedback = error.message || "Undo failed.";
+    updateFeedback(state.feedback, "error");
+  }
+}
+
+async function requestRoomRestart(vote) {
+  if (!state.roomId || !state.activeRound.id) {
+    state.feedback = "No active multiplayer round to restart.";
+    updateFeedback(state.feedback);
+    return;
+  }
+
+  try {
+    await roomSocketRequest("room:restart_vote", {
+      roundId: state.activeRound.id,
+      requestId: createRoomRequestId(),
+      clientSeq: ++roomCellRequestSeq,
+      vote: vote !== false,
+    });
+  } catch (error) {
+    state.feedback = error.message || "Restart vote failed.";
+    updateFeedback(state.feedback, "error");
   }
 }
 
@@ -4801,10 +5087,6 @@ function renderBoard() {
 }
 
 function setEntryMode(mode) {
-  if (isVersusMode() && mode !== "value") {
-    return;
-  }
-
   state.entryMode = mode;
   renderControls();
 }
@@ -4859,6 +5141,8 @@ function updateCellValue(index, nextValue) {
     renderBoard();
     return;
   }
+
+  const beforeSnapshot = snapshotSoloCell(cell);
 
   if (!nextValue) {
     cell.value = "";
@@ -4935,6 +5219,8 @@ function updateCellValue(index, nextValue) {
     }
   }
 
+  recordSoloUndoEntry({ cellIndex: index, before: beforeSnapshot, after: snapshotSoloCell(cell) });
+
   saveState();
   renderBoard();
 }
@@ -4960,11 +5246,15 @@ function toggleCellNote(index, digit) {
     return;
   }
 
+  const beforeSnapshot = snapshotSoloCell(cell);
+
   if (cell.notes[digit]) {
     delete cell.notes[digit];
   } else {
     cell.notes[digit] = state.operator;
   }
+
+  recordSoloUndoEntry({ cellIndex: index, before: beforeSnapshot, after: snapshotSoloCell(cell) });
 
   saveState();
   renderBoard();
@@ -4974,15 +5264,11 @@ function clearCell(index) {
   syncSharedStateFromStorage();
 
   if (isAuthoritativeMultiplayerRoundActive()) {
-    if (isVersusMode()) {
-      return;
-    }
-
     void submitAuthoritativeCellChange(index, {
       action: "clear",
     }).catch((error) => {
       state.feedback = error.message || "Failed to clear cell.";
-      updateFeedback(state.feedback);
+      updateFeedback(state.feedback, "error");
     });
     return;
   }
@@ -4993,6 +5279,8 @@ function clearCell(index) {
   if (isVersusMode() || !cell || cell.given) {
     return;
   }
+
+  const beforeSnapshot = snapshotSoloCell(cell);
 
   if (cell.value) {
     cell.value = "";
@@ -5009,6 +5297,7 @@ function clearCell(index) {
   cell.harmonyDigit = null;
   cell.lastMoveAt = Date.now();
   cell.lastMoveBy = state.operator;
+  recordSoloUndoEntry({ cellIndex: index, before: beforeSnapshot, after: snapshotSoloCell(cell) });
 
   saveState();
   renderBoard();
@@ -5030,7 +5319,7 @@ function applyDigitInput(digit) {
   const session = getCurrentSession();
   const cell = session.cells[state.selectedIndex];
 
-  if (!cell || cell.given || (isVersusMode() && isFilledClaimCell(cell))) {
+  if (!cell || cell.given || (isVersusMode() && cell.locked)) {
     return;
   }
 
@@ -5434,13 +5723,23 @@ function handleEntryModeClick(event) {
 }
 
 function handleKeypadClick(event) {
-  if (!isSessionInteractive()) {
-    return;
-  }
-
   const button = event.target.closest(".keypad-button");
 
   if (!button) {
+    return;
+  }
+
+  if (button.dataset.action === "undo") {
+    applySoloUndo();
+    return;
+  }
+
+  if (button.dataset.action === "restart") {
+    requestRestartCurrentRound();
+    return;
+  }
+
+  if (!isSessionInteractive()) {
     return;
   }
 
@@ -5467,6 +5766,12 @@ function handleKeyboardInput(event) {
     return;
   }
 
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    applySoloUndo();
+    return;
+  }
+
   if (!isSessionInteractive()) {
     if (event.key === "Escape") {
       state.activeDigit = null;
@@ -5476,11 +5781,11 @@ function handleKeyboardInput(event) {
     return;
   }
 
-  if (!isVersusMode() && event.shiftKey && /^[1-9]$/.test(event.key) && state.selectedIndex !== null) {
+  if (event.shiftKey && /^[1-9]$/.test(event.key) && state.selectedIndex !== null) {
     const session = getCurrentSession();
     const cell = session.cells[state.selectedIndex];
 
-    if (cell && !cell.given && !cell.value) {
+    if (cell && !cell.given && !cell.value && !cell.locked) {
       toggleCellNote(state.selectedIndex, event.key);
     }
     return;
@@ -5498,7 +5803,7 @@ function handleKeyboardInput(event) {
     return;
   }
 
-  if (!isVersusMode() && event.key.toLowerCase() === "n") {
+  if (event.key.toLowerCase() === "n") {
     setEntryMode(state.entryMode === "value" ? "note" : "value");
     return;
   }
