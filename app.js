@@ -1061,6 +1061,9 @@ const operatorGroup = document.querySelector("#operator-group");
 const operatorControls = document.querySelector("#operator-controls");
 const entryModeControls = document.querySelector("#entry-mode-controls");
 const themeControls = document.querySelector("#theme-controls");
+const openThemeRoomButton = document.querySelector("#open-theme-room-button");
+const themeRoomModal = document.querySelector("#theme-room-modal");
+const closeThemeRoomButton = document.querySelector("#close-theme-room-button");
 const vipSkinRoot = document.querySelector("#vip-skin-root");
 const keypad = document.querySelector("#keypad");
 const boardLegend = document.querySelector(".legend");
@@ -1164,6 +1167,25 @@ function closeModeSelectModal() {
 
   modeSelectModal.classList.add("hidden");
   modeSelectModal.setAttribute("aria-hidden", "true");
+}
+
+function openThemeRoomModal() {
+  if (!themeRoomModal) {
+    return;
+  }
+
+  renderThemeControls();
+  themeRoomModal.classList.remove("hidden");
+  themeRoomModal.setAttribute("aria-hidden", "false");
+}
+
+function closeThemeRoomModal() {
+  if (!themeRoomModal) {
+    return;
+  }
+
+  themeRoomModal.classList.add("hidden");
+  themeRoomModal.setAttribute("aria-hidden", "true");
 }
 
 function openRoomHubModal() {
@@ -3032,19 +3054,20 @@ function buildVvipProgressCopy(theme) {
   const vvipModule = getVvipModule();
 
   if (!controller || !vvipModule || !theme) {
-    return "Pick a VVIP theme to preview it. Growth is saved on this device only.";
+    return "Pick a VVIP dream room to preview it. 免费体验中 · Growth is saved on this device only.";
   }
 
+  const themeName = theme.labelZh || theme.label;
   const entry = controller.getThemeProgress(theme.id);
   const maxStage = vvipModule.maxStage;
 
   if (entry.stage >= maxStage) {
-    return `${theme.label}: Stage ${entry.stage} of ${maxStage} reached after ${entry.completedCount} puzzles.`;
+    return `${themeName}: Stage ${entry.stage} of ${maxStage} reached after ${entry.completedCount} puzzles.`;
   }
 
   const nextThreshold = vvipModule.getNextStageThreshold(entry.completedCount);
 
-  return `${theme.label}: Stage ${entry.stage} of ${maxStage} · ${entry.completedCount}/${nextThreshold} puzzles to Stage ${entry.stage + 1}.`;
+  return `${themeName}: Stage ${entry.stage} of ${maxStage} · ${entry.completedCount}/${nextThreshold} puzzles to Stage ${entry.stage + 1}.`;
 }
 
 function renderThemeControls() {
@@ -3062,24 +3085,28 @@ function renderThemeControls() {
   const controller = getVvipController();
   const effectsEnabled = controller ? controller.getEffectsEnabled() : true;
   const vvipThemeMarkup = vvipThemes.map(
-    (theme) => `<button type="button" class="chip-button theme-button" data-theme="${theme.id}">${theme.label}</button>`,
+    (theme) => `
+        <button type="button" class="chip-button theme-button vvip-theme-button" data-theme="${theme.id}" title="${theme.label}">
+          <span class="vvip-theme-button__zh">${theme.labelZh || theme.label}</span>
+          <span class="vvip-theme-button__en">${theme.label}</span>
+        </button>`,
   ).join("");
 
   const vvipSection = vvipThemes.length === 0
     ? ""
     : `
       <div class="vvip-theme-group" data-theme-group="vvip">
-        <span class="vvip-theme-group__label">VVIP Themes<span class="vvip-theme-badge">Preview</span></span>
+        <span class="vvip-theme-group__label">VVIP Dream Rooms · 梦幻房间<span class="vvip-theme-badge">免费体验中</span></span>
         <div class="vvip-theme-group__row">${vvipThemeMarkup}</div>
         <button type="button" class="chip-button secondary-chip-button vvip-effects-toggle" data-vvip-effects="${effectsEnabled ? "on" : "off"}" aria-pressed="${effectsEnabled ? "true" : "false"}">Ambient effects: ${effectsEnabled ? "On" : "Off"}</button>
         <p class="vvip-theme-group__meta" data-vvip-progress>${buildVvipProgressCopy(activeVvipTheme)}</p>
-        <p class="vvip-theme-group__meta" data-vvip-notice>Growth progress is stored in this browser only. Clearing site data or switching devices resets it.</p>
+        <p class="vvip-theme-group__meta" data-vvip-notice>Free to preview during this test period — no payment is involved. Growth progress is stored in this browser only. Clearing site data or switching devices resets it.</p>
       </div>
     `;
 
   const markup = `
     <div class="vvip-theme-group" data-theme-group="vip">
-      <span class="vvip-theme-group__label">VIP Themes</span>
+      <span class="vvip-theme-group__label">VIP Themes · 免费主题</span>
       <div class="vvip-theme-group__row">${freeThemeMarkup}</div>
     </div>
     ${vvipSection}
@@ -5868,6 +5895,20 @@ function handleThemeClick(event) {
   renderBoard();
 }
 
+function handleOpenThemeRoomClick() {
+  openThemeRoomModal();
+}
+
+function handleCloseThemeRoomClick() {
+  closeThemeRoomModal();
+}
+
+function handleThemeRoomModalClick(event) {
+  if (event.target === themeRoomModal) {
+    closeThemeRoomModal();
+  }
+}
+
 function handleStorageSync(event) {
   if (!isSinglePlayerMode()) {
     return;
@@ -6410,6 +6451,9 @@ function bootstrap() {
   operatorControls.addEventListener("click", handleOperatorClick);
   entryModeControls.addEventListener("click", handleEntryModeClick);
   themeControls?.addEventListener("click", handleThemeClick);
+  openThemeRoomButton?.addEventListener("click", handleOpenThemeRoomClick);
+  closeThemeRoomButton?.addEventListener("click", handleCloseThemeRoomClick);
+  themeRoomModal?.addEventListener("click", handleThemeRoomModalClick);
   keypad.addEventListener("click", handleKeypadClick);
   window.addEventListener("keydown", handleKeyboardInput);
   window.addEventListener("keydown", (event) => {

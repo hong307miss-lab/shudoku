@@ -71,11 +71,6 @@
           </div>
         </div>
 
-        <div class="control-group">
-          <span class="control-label">Board theme</span>
-            <div class="button-row" id="theme-controls"></div>
-        </div>
-
         <div class="control-group control-exit-group">
           <div class="button-row">
             <button type="button" class="chip-button secondary-chip-button" id="exit-to-mode-select-button">Exit</button>
@@ -109,6 +104,19 @@
             <div class="status-panel-actions">
               <button type="button" class="chip-button start-game-button" id="start-game-button">Start Game</button>
             </div>
+          </div>
+
+          <div class="control-group theme-room-entry-group">
+            <button
+              type="button"
+              class="chip-button theme-room-entry-button"
+              id="open-theme-room-button"
+              aria-haspopup="dialog"
+              aria-controls="theme-room-modal"
+            >
+              <span class="theme-room-entry-button__label">Themes / 主题房间</span>
+              <span class="theme-room-entry-button__badge">VVIP 免费体验中</span>
+            </button>
           </div>
 
           <p class="helper-text" id="helper-text">
@@ -341,6 +349,23 @@
         <p class="modal-copy" id="win-copy">You filled the whole board without any duplicate conflicts.</p>
         <p class="modal-time" id="win-time">Time: 00:00</p>
         <button type="button" class="chip-button modal-close-button" id="close-win-modal">Nice</button>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="theme-room-modal" aria-hidden="true">
+      <div class="modal-card theme-room-card" role="dialog" aria-modal="true" aria-labelledby="theme-room-title">
+        <p class="modal-eyebrow">Theme Rooms</p>
+        <h2 id="theme-room-title">主题房间</h2>
+        <p class="modal-copy">
+          Themes only change how your own board looks. Your puzzle, timer, score and room connection stay exactly
+          the same, and the board keeps its size.
+        </p>
+        <div class="theme-room-body">
+          <div class="button-row" id="theme-controls"></div>
+        </div>
+        <div class="theme-room-actions">
+          <button type="button" class="chip-button modal-close-button" id="close-theme-room-button">Done / 完成</button>
+        </div>
       </div>
     </div>
 

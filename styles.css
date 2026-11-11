@@ -484,11 +484,11 @@ body[data-controls-open="true"] .control-drawer-toggle {
 
 body[data-runtime-kind="discord"] {
   --discord-layout-gap: 8px;
-  --discord-side-left: clamp(188px, 15vw, 216px);
-  --discord-side-right: clamp(200px, 16vw, 236px);
+  --discord-side-left: clamp(176px, 13.5vw, 212px);
+  --discord-side-right: clamp(184px, 14.5vw, 228px);
   --discord-board-width: min(
-    calc(100dvh - 160px),
-    calc(100vw - var(--discord-side-left) - var(--discord-side-right) - 72px),
+    calc(100dvh - 140px),
+    calc(100vw - 24px),
     86dvh
   );
   padding: 8px 10px 12px;
@@ -517,11 +517,9 @@ body[data-runtime-kind="discord"] .topbar {
   grid-area: topbar;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "eyebrow nav"
-    "title nav";
+  grid-template-areas: "title nav";
   align-items: center;
-  gap: 2px 12px;
+  gap: 2px 10px;
   text-align: left;
   margin-bottom: 0;
   min-width: 0;
@@ -529,16 +527,14 @@ body[data-runtime-kind="discord"] .topbar {
   overflow: hidden;
 }
 
+/* The Discord host already names the activity, so the eyebrow is dead weight. */
 body[data-runtime-kind="discord"] .topbar .eyebrow {
-  grid-area: eyebrow;
-  margin: 0;
-  font-size: 10px;
-  letter-spacing: 0.16em;
+  display: none;
 }
 
 body[data-runtime-kind="discord"] .topbar h1 {
   grid-area: title;
-  font-size: clamp(24px, 2.9vw, 34px);
+  font-size: clamp(20px, 2.2vw, 28px);
   line-height: 1;
 }
 
@@ -873,43 +869,114 @@ body[data-runtime-kind="discord"] .board {
   max-width: calc(100vw - 24px);
 }
 
-@media (min-width: 1180px) and (min-height: 640px) {
+/*
+ * Discord desktop (wide + tall enough for three columns):
+ *   left rail (header / status / controls) | board | right rail (keypad)
+ * The board spans every row so it owns the full viewport height, and the rails
+ * scroll internally instead of pushing the board around.
+ */
+@media (min-width: 880px) and (min-height: 560px) {
   body[data-runtime-kind="discord"] {
     --discord-board-width: min(
-      calc(100dvh - 186px),
-      calc(100vw - var(--discord-side-left) - var(--discord-side-right) - 72px),
-      88dvh
+      calc(100dvh - 56px),
+      calc(100vw - var(--discord-side-left) - var(--discord-side-right) - 64px)
     );
   }
 
   body[data-runtime-kind="discord"] .app-shell {
+    height: calc(100dvh - 20px);
+    min-height: 0;
     grid-template-columns: var(--discord-side-left) max-content var(--discord-side-right);
+    grid-template-rows: auto auto minmax(0, 1fr);
     grid-template-areas:
-      "topbar topbar topbar"
-      "status status status"
+      "topbar board keypad"
+      "status board keypad"
       "controls board keypad";
     justify-content: center;
+    align-items: start;
+  }
+
+  body[data-runtime-kind="discord"] .topbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "title"
+      "nav";
+    gap: 6px;
+  }
+
+  body[data-runtime-kind="discord"] .topbar .page-switcher {
+    justify-content: flex-start;
+  }
+
+  body[data-runtime-kind="discord"] .status-panel {
+    grid-area: status;
+    padding: 10px;
+    overflow: visible;
+  }
+
+  body[data-runtime-kind="discord"] .board-meta,
+  body[data-runtime-kind="discord"] .status-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  body[data-runtime-kind="discord"] .status-strip > div {
+    min-width: 0;
+    min-height: 26px;
+    padding: 4px 9px;
+  }
+
+  body[data-runtime-kind="discord"] .status-panel-actions {
+    margin-left: 0;
+    min-width: 0;
+  }
+
+  body[data-runtime-kind="discord"] .status-panel-actions .start-game-button {
+    min-height: 32px;
+    padding: 6px 12px;
+  }
+
+  body[data-runtime-kind="discord"] .game-feedback {
+    border-radius: 12px;
   }
 
   body[data-runtime-kind="discord"] .controls-panel,
   body[data-runtime-kind="discord"] .keypad-panel {
-    position: sticky;
-    top: 0;
+    align-self: stretch;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* Buttons take their own label width so a narrow rail never clips text. */
+  body[data-runtime-kind="discord"] .controls-panel .button-row .chip-button {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  body[data-runtime-kind="discord"] .board-panel {
+    align-self: stretch;
+    align-items: center;
+  }
+
+  /*
+   * "Erase / Undo / Restart" need ~70px for their labels but only get a third
+   * of this narrow rail, which pushes them past the panel and adds a horizontal
+   * scrollbar. Let each action key own a full row instead.
+   */
+  body[data-runtime-kind="discord"] .keypad-panel .erase-button,
+  body[data-runtime-kind="discord"] .keypad-panel .keypad-button.action-button {
+    grid-column: span 3;
+    width: 100%;
   }
 }
 
-@media (max-width: 1179px), (max-height: 639px) {
+/* Discord narrow or short: fall back to a single stacked, page-scrolling column. */
+@media (max-width: 879px), (max-height: 559px) {
   body[data-runtime-kind="discord"] {
-    --discord-board-width: min(calc(100dvh - 160px), calc(100vw - 24px), 84dvh);
-  }
-
-  body[data-runtime-kind="discord"] .topbar {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "eyebrow"
-      "title"
-      "nav";
-    gap: 2px;
+    --discord-board-width: min(calc(100dvh - 140px), calc(100vw - 24px), 86dvh);
   }
 
   body[data-runtime-kind="discord"] .topbar .page-switcher {
@@ -1023,7 +1090,7 @@ body[data-runtime-kind="discord"] .board {
 }
 
 .cell-value {
-  font-size: clamp(11px, 6.4cqw, 30px);
+  font-size: clamp(11px, 6.4cqw, 56px);
   font-weight: 600;
   line-height: 1;
 }
@@ -1292,21 +1359,31 @@ body[data-runtime-kind="discord"] .board {
   }
 }
 
+/*
+ * Nine candidates share a 3x3 sub-grid inside one cell, so the glyph size is
+ * bounded by a third of the cell (~2.9% of the board width). The font-size
+ * lives on the grid so the button's own `font: inherit` picks it up instead of
+ * the browser's 13.33px button default, which is what used to stop the digits
+ * from scaling with the board.
+ */
 .notes-grid {
   width: 100%;
   height: 100%;
-  padding: 4%;
+  padding: 5%;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
   align-items: center;
   justify-items: center;
+  font-size: clamp(6px, 2.9cqw, 26px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .note {
-  font-size: clamp(6px, 3.1cqw, 13px);
+  font-size: inherit;
   line-height: 1;
-  color: #888;
+  color: var(--note-hint, #5a5a5a);
   min-width: 0;
 }
 
@@ -1320,8 +1397,8 @@ body[data-runtime-kind="discord"] .board {
   background: none !important;
   padding: 0;
   font: inherit;
-  color: #dddddd;
-  opacity: 0.55;
+  color: var(--note-hint, #5a5a5a);
+  opacity: 1;
   cursor: pointer;
   border-radius: 0;
   box-shadow: none;
@@ -1331,18 +1408,23 @@ body[data-runtime-kind="discord"] .board {
 }
 
 .note-slot:hover {
-  color: #8b8b8b;
-  opacity: 0.9;
+  color: #333333;
+  opacity: 1;
   background: none !important;
   box-shadow: none;
 }
 
 .note-slot.filled {
-  color: #111111;
+  color: var(--text);
   opacity: 1;
   font-weight: 700;
   background: none !important;
   box-shadow: none;
+}
+
+/* The hacker skin paints dark cells, so the candidate hints flip to a light tone. */
+body[data-vip-theme="hacker"] .note-slot {
+  --note-hint: #a9e8c4;
 }
 
 .note-slot.player-a {
@@ -1593,6 +1675,178 @@ body[data-runtime-kind="discord"] .board {
 .mode-select-card {
   width: min(100%, 460px);
   text-align: left;
+}
+
+/* ------------------------------------------------------------------ *
+ * Theme Room panel — the "Themes / 主题房间" entry in the status/info
+ * panel opens the existing VVIP theme selector inside this closable dialog.
+ * The entry lives in the info panel (not the controls drawer) so it is on
+ * the first screen on Discord phones and on the plain web VIP page.
+ * ------------------------------------------------------------------ */
+
+.theme-room-entry-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.status-panel .theme-room-entry-group {
+  width: min(100%, 420px);
+  margin-top: 10px;
+}
+
+/* Discord: the group owns a full row of the wrapped info panel. */
+body[data-runtime-kind="discord"] .status-panel .theme-room-entry-group {
+  flex: 1 1 100%;
+  margin-top: 0;
+}
+
+.theme-room-entry-button {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+  min-width: 0;
+  max-width: 100%;
+  text-align: center;
+}
+
+/* The rail chip keeps its compact sizing instead of the page-wide button. */
+body[data-runtime-kind="discord"] .status-panel .theme-room-entry-button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.theme-room-entry-button__label {
+  font-weight: 700;
+}
+
+.theme-room-entry-button__badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  opacity: 0.82;
+}
+
+.theme-room-card {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 520px);
+  max-height: calc(100dvh - 40px);
+  text-align: left;
+}
+
+.theme-room-body {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.theme-room-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/*
+ * The selector markup is shared with the VVIP stylesheet, but that sheet is only
+ * loaded while a VVIP theme is active. Restate the layout here so the panel looks
+ * the same whichever theme is currently selected.
+ */
+.theme-room-card #theme-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  width: 100%;
+}
+
+.theme-room-card .vvip-theme-group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+
+.theme-room-card .vvip-theme-group__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.theme-room-card .vvip-theme-group__label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.theme-room-card .vvip-theme-group__meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.theme-room-card .vvip-theme-badge {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.theme-room-card .chip-button {
+  min-width: 0;
+  padding: 9px 14px;
+  font-size: 14px;
+}
+
+.theme-room-card .vvip-theme-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1 1 170px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  line-height: 1.3;
+}
+
+.vvip-theme-button__zh {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.vvip-theme-button__en {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  opacity: 0.72;
+}
+
+.theme-room-card .vvip-effects-toggle {
+  align-self: flex-start;
 }
 
 .mode-option-grid {
