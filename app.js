@@ -166,11 +166,18 @@ function promoteSurfaceWhenDiscordHandshakeLands() {
       syncRuntimeSurface();
 
       // The late handshake means the launch decision already ran against the web surface, so the
-      // finished board has to be reset here instead of before `startApp()`: a board that has already
-      // been rendered cannot be retracted by cleaning storage. A live multiplayer room is left alone.
-      if (beginDiscordActivitySession() && appBootstrapped && !isRoomMultiplayerMode() && getCurrentSession()?.hasWon) {
-        resetRoomStateForModeSelection();
-        return;
+      // board has to be reset here instead of before `startApp()`: a board that has already been
+      // rendered cannot be retracted by cleaning storage. That covers the finished board and the
+      // round that was still in progress — a new Activity opens on the initial lobby either way,
+      // and the unfinished round keeps its data, it is only taken off the screen. A live
+      // multiplayer room is left alone.
+      if (beginDiscordActivitySession() && appBootstrapped && !isRoomMultiplayerMode()) {
+        const session = getCurrentSession();
+
+        if (session?.hasWon === true || hasStoredSessionProgress(session)) {
+          resetRoomStateForModeSelection();
+          return;
+        }
       }
 
       if (appBootstrapped) {
@@ -2287,9 +2294,15 @@ function isVvipRoomsDeepLink() {
 function startApp() {
   const crossPageRoomContext = getCrossPageRoomContextOnLaunch();
   const storedMode = readStoredGameMode();
-  const resumableSinglePlayerMode = shouldResumeSinglePlayerModeOnLaunch(storedMode)
-    ? storedMode
-    : null;
+  // A brand new Activity launch opens on the initial lobby, so the round the player left behind must
+  // not be reopened behind their back. "Not reopened" is not "not kept": the board stays in its own
+  // store and comes back the moment the player picks that mode, which is the normal flow. A jump
+  // inside the Activity and a plain web refresh both keep the session marker, so they still resume
+  // exactly as before, and an explicit room entry / `?rooms=vvip` deep link is user intent, not an
+  // automatic resume, which is why only this branch is gated.
+  const resumableSinglePlayerMode = state.runtime.activitySession === "new"
+    ? null
+    : (shouldResumeSinglePlayerModeOnLaunch(storedMode) ? storedMode : null);
 
   if (hasExplicitManualRoomEntry()) {
     state.gameMode = storedMode === "versus" ? "versus" : "coop";

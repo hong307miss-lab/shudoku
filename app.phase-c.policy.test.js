@@ -909,6 +909,27 @@ test("the Activity session is opened after ready() and before the launch decisio
   assert.ok(startAppIndex > sessionIndex, "the finished board must be dropped before the launch decision");
 });
 
+test("a new Activity session opens on the lobby even when the stored round is unfinished", () => {
+  const startAppSource = extractFunctionSource("startApp");
+  const gateIndex = startAppSource.indexOf('state.runtime.activitySession === "new"');
+  const resumeIndex = startAppSource.indexOf("shouldResumeSinglePlayerModeOnLaunch(");
+
+  // "Not reopened" is not "not kept": the unfinished round is silenced for the launch, not deleted —
+  // the only code that removes a stored board is `discardCompletedSoloBoards()`, and it removes
+  // finished ones only. This branch must therefore never reach for a storage API.
+  assert.ok(gateIndex >= 0, "startApp must consult the Activity session marker before resuming");
+  assert.ok(resumeIndex > gateIndex, "the Activity session must be checked before the round is resumed");
+  assert.doesNotMatch(startAppSource, /hasWon|removeItem|\.clear\(\)/);
+});
+
+test("a handshake that lands after the timeout closes an unfinished board too", () => {
+  const promoteSource = extractFunctionSource("promoteSurfaceWhenDiscordHandshakeLands");
+
+  // The late handshake promotes the surface after `startApp()` already ran against the web surface,
+  // so it has to take the in-progress board off the screen the same way it does a finished one.
+  assert.match(promoteSource, /hasStoredSessionProgress\(session\)/);
+});
+
 test("a handshake that lands after the timeout resets a finished board instead of leaving it up", () => {
   const promoteSource = extractFunctionSource("promoteSurfaceWhenDiscordHandshakeLands");
 
