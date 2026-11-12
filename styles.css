@@ -34,6 +34,14 @@
      * numeral colour is split out from `--text`. A room whose chrome is dark glass can then use
      * light panel text without turning the sudoku itself unreadable. */
     --cell-text: var(--text);
+    /* Two surfaces stay light in every room — the form fields and the ranked cards — so the ink
+     * painted on them is chosen from the surface, not from the room. A dark room can flip `--text`
+     * light for its rails and still keep a readable name in the field and a readable rank on the
+     * card. */
+    --field-text: var(--text);
+    --field-placeholder: var(--muted);
+    --card-text: var(--text);
+    --card-muted: var(--muted);
     --button-border: var(--line);
     --board-bg: #ffffff;
     --cell-bg: #ffffff;
@@ -838,21 +846,34 @@ body[data-runtime-kind="discord"] .room-summary-card {
     0 8px 18px rgba(17, 17, 17, 0.06);
 }
 
-body[data-runtime-kind="discord"] .room-summary-card strong,
-body[data-runtime-kind="discord"] .ranked-summary-card strong,
-body[data-runtime-kind="discord"] .ranked-leaderboard-header strong {
+body[data-runtime-kind="discord"] .room-summary-card strong {
   font-size: 12px;
   color: color-mix(in srgb, var(--text) 96%, var(--muted) 4%);
   font-weight: 700;
 }
 
-body[data-runtime-kind="discord"] .room-summary-card span,
+/* The ranked cards keep their white surface in every host, so their ink is taken from the card.
+ * Only the room summary card is tinted by the room above, which is why it is the one member of
+ * this pair that still reads its colour from the room. */
+body[data-runtime-kind="discord"] .ranked-summary-card strong,
+body[data-runtime-kind="discord"] .ranked-leaderboard-header strong {
+  font-size: 12px;
+  color: var(--card-text);
+  font-weight: 700;
+}
+
+body[data-runtime-kind="discord"] .room-summary-card span {
+  color: color-mix(in srgb, var(--text) 62%, var(--muted) 38%);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
 body[data-runtime-kind="discord"] .ranked-summary-card span,
 body[data-runtime-kind="discord"] .ranked-leaderboard-header span,
 body[data-runtime-kind="discord"] .ranked-leaderboard-status,
 body[data-runtime-kind="discord"] .ranked-leaderboard-item-time,
 body[data-runtime-kind="discord"] .ranked-live-stat-label {
-  color: color-mix(in srgb, var(--text) 62%, var(--muted) 38%);
+  color: var(--card-muted);
   font-size: 10.5px;
   line-height: 1.35;
 }
@@ -2179,11 +2200,13 @@ body.vvip-rooms-open {
 }
 
 .room-summary-card strong {
+  color: var(--card-text);
   font-size: 14px;
 }
 
 .room-summary-card span {
-  color: var(--muted);
+  /* The same white card as the ranked summary, so the same card ink. */
+  color: var(--card-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2210,6 +2233,7 @@ body.vvip-rooms-open {
 
 .ranked-summary-card strong,
 .ranked-leaderboard-header strong {
+  color: var(--card-text);
   font-size: 14px;
 }
 
@@ -2237,7 +2261,9 @@ body.vvip-rooms-open {
 .ranked-leaderboard-status,
 .ranked-leaderboard-item-time,
 .ranked-live-stat-label {
-  color: var(--muted);
+  /* Every one of these sits on the light ranked card, so the ink comes from the card, not the
+   * room. In the dark room this stays dark instead of inheriting a light `--muted`. */
+  color: var(--card-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2258,6 +2284,7 @@ body.vvip-rooms-open {
 }
 
 .ranked-live-stat strong {
+  color: var(--card-text);
   font-size: 16px;
   line-height: 1.2;
 }
@@ -2295,6 +2322,7 @@ body.vvip-rooms-open {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--card-text);
 }
 
 .ranked-leaderboard-item.current-player .ranked-leaderboard-item-name {
@@ -2310,7 +2338,7 @@ body.vvip-rooms-open {
 .ranked-leaderboard-gap {
   list-style: none;
   text-align: center;
-  color: var(--muted);
+  color: var(--card-muted);
   font-size: 12px;
   letter-spacing: 0.12em;
 }
@@ -2318,6 +2346,13 @@ body.vvip-rooms-open {
 .ranked-profile-card {
   width: min(100%, 380px);
   text-align: left;
+}
+
+/* The name field and the Back / Save Name row used to sit flush against each other. A single
+ * margin on the action row sets the gap deliberately, instead of stacking a margin under the field
+ * and another above the row and hoping they add up. */
+.ranked-profile-card .room-hub-inline-actions {
+  margin-top: 18px;
 }
 
 .room-hub-card {
@@ -2420,12 +2455,26 @@ body.vvip-rooms-open {
   border-radius: 14px;
   border: 1px solid var(--panel-border);
   background: rgba(255, 255, 255, 0.94);
-  color: var(--text);
+  /* The field surface is light in every room, so the typed name is inked from the surface rather
+   * than from the room. In the dark starfield room this is the difference between a readable name
+   * and a name that disappears into a white field. */
+  color: var(--field-text);
   font: inherit;
 }
 
+.room-form-field input::placeholder {
+  color: var(--field-placeholder);
+  opacity: 1;
+}
+
+/* A dark highlight with white glyphs stays legible whichever way the room inks the field. */
+.room-form-field input::selection {
+  background: rgba(23, 23, 30, 0.85);
+  color: #ffffff;
+}
+
 .room-form-field input:focus {
-  outline: 2px solid rgba(17, 17, 17, 0.16);
+  outline: 2px solid var(--field-focus-ring, rgba(17, 17, 17, 0.16));
   outline-offset: 2px;
 }
 

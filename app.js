@@ -284,7 +284,7 @@ const vipThemeLabels = Object.fromEntries(
 
 // VVIP room themes are registered by ./vvip/vvip-theme.js, which is only loaded on the VIP Room
 // page. Everything below stays null-safe so the other pages keep working untouched.
-const VVIP_SKIN_CSS_PATH = "./vvip/vvip-theme.css?v=20261112-vvip-transparency";
+const VVIP_SKIN_CSS_PATH = "./vvip/vvip-theme.css?v=20261112-ranked-readability";
 
 function getVvipModule() {
   const vvipModule = window.SUDOKU_VVIP;
@@ -6757,6 +6757,13 @@ function bootstrap() {
 const RUNTIME_DEBUG_STORAGE_KEY = "discord-sudoku-runtime-debug-v1";
 
 /**
+ * The real Discord Activity cannot be reached by editing the address bar, so the panel also has an
+ * in-session trigger (Ctrl/Cmd + Shift + D). That trigger is deliberately not persisted: a stray
+ * keypress in production vanishes on the next page load instead of sticking to the player.
+ */
+let runtimeDebugShortcutActive = false;
+
+/**
  * The runtime diagnostic panel is a debugging aid for the Discord host, where the real
  * `discordSdk.ready()` handshake cannot be reproduced locally. It is opt-in, hidden by default,
  * read-only (it never mutates `state`, the DOM surface or the SDK), and deliberately reports no
@@ -6764,7 +6771,8 @@ const RUNTIME_DEBUG_STORAGE_KEY = "discord-sudoku-runtime-debug-v1";
  *
  * Enable with `?runtime-debug=1` (also accepts `?runtimeDebug=1`); disable with `?runtime-debug=0`.
  * The flag is remembered in localStorage so it survives the full-page navigation between the
- * Lobby and VIP Room pages.
+ * Lobby and VIP Room pages. Inside the Activity, Ctrl/Cmd + Shift + D opens the same panel for the
+ * current page load only.
  */
 function isRuntimeDebugEnabled() {
   const params = new URLSearchParams(window.location.search);
@@ -6793,6 +6801,10 @@ function isRuntimeDebugEnabled() {
   } catch (error) {
     return false;
   }
+}
+
+function isRuntimeDebugActive() {
+  return isRuntimeDebugEnabled() || runtimeDebugShortcutActive;
 }
 
 function readAssetBuildVersion(assetName) {
@@ -6839,6 +6851,8 @@ function collectRuntimeDiagnostics() {
   const wideMatch = window.matchMedia("(min-width: 880px)").matches;
   const shortMatch = window.matchMedia("(max-height: 559px)").matches;
   const gridAreas = shellStyle ? shellStyle.gridTemplateAreas : "(not found)";
+  const gridColumns = shellStyle ? shellStyle.gridTemplateColumns : "none";
+  const gridColumnCount = gridColumns && gridColumns !== "none" ? gridColumns.trim().split(/\s+/).length : 0;
   const threeColumn = typeof gridAreas === "string" && gridAreas.includes("board") && gridAreas.indexOf("board") !== gridAreas.lastIndexOf("board");
 
   return [
@@ -6859,6 +6873,7 @@ function collectRuntimeDiagnostics() {
     ["app-shell box", shellBox ? `${Math.round(shellBox.width)} x ${Math.round(shellBox.height)}` : "(not found)"],
     ["grid-template-areas", gridAreas],
     ["grid-template-columns", shellStyle ? shellStyle.gridTemplateColumns : "(not found)"],
+    ["grid column count", gridColumnCount ? String(gridColumnCount) : "(none)"],
     ["board box", readElementBox("#sudoku-board")],
     ["keypad box", readElementBox(".keypad-panel")],
     ["controls box", readElementBox(".controls-panel")],
@@ -6874,7 +6889,7 @@ function formatRuntimeDiagnostics() {
 }
 
 function setupRuntimeDiagnostics() {
-  if (!isRuntimeDebugEnabled() || document.getElementById("runtime-diagnostics")) {
+  if (!isRuntimeDebugActive() || document.getElementById("runtime-diagnostics")) {
     return;
   }
 
@@ -6923,7 +6938,13 @@ function setupRuntimeDiagnostics() {
       .join("");
   };
 
-  panel.querySelector("[data-rtd-close]")?.addEventListener("click", () => panel.remove());
+  const closePanel = () => {
+    runtimeDebugShortcutActive = false;
+    panel.remove();
+  };
+
+  panel.querySelector("[data-rtd-close]")?.addEventListener("click", closePanel);
+  panel.setAttribute("data-rtd-shortcut", runtimeDebugShortcutActive ? "1" : "0");
   panel.querySelector("[data-rtd-refresh]")?.addEventListener("click", render);
   // The panel lives inside the Activity iframe, where copying is far easier than transcribing it.
   panel.querySelector("[data-rtd-copy]")?.addEventListener("click", (event) => {
@@ -6951,6 +6972,35 @@ function setupRuntimeDiagnostics() {
   // Cheap and read-only: the surface can change after a slow handshake or a viewport resize.
   window.setInterval(render, 2000);
 }
+
+/**
+ * Open or close the panel from the developer shortcut. Bound here rather than inside `bootstrap()`
+ * because the first Lobby visit opens the mode picker and never runs `bootstrap()`, and because the
+ * panel is most useful exactly when the normal startup path is what is failing.
+ *
+ * Ctrl/Cmd + Shift + D is unbound in the desktop Discord client and in the browsers it embeds, and
+ * it is a three-key chord with no on-screen affordance, so a player never trips over it.
+ */
+function toggleRuntimeDiagnostics() {
+  if (document.getElementById("runtime-diagnostics")) {
+    runtimeDebugShortcutActive = false;
+    document.getElementById("runtime-diagnostics").remove();
+    return;
+  }
+
+  runtimeDebugShortcutActive = true;
+  setupRuntimeDiagnostics();
+}
+
+window.addEventListener("keydown", (event) => {
+  const isShortcutChord = (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey;
+  if (!isShortcutChord || event.key.toLowerCase() !== "d") {
+    return;
+  }
+
+  event.preventDefault();
+  toggleRuntimeDiagnostics();
+});
 
 modeOptionButtons.forEach((button) => {
   button.addEventListener("click", handleModeOptionClick);

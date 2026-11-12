@@ -574,3 +574,229 @@ test("the vendored SDK module is served with a JavaScript content type", async (
   const loaderResponse = await fetch(`http://127.0.0.1:${port}/vendor/discord-runtime-loader.js`);
   assert.match(loaderResponse.headers.get("content-type") || "", /javascript/);
 });
+
+/* ----------------------------------------------------------------- *
+ * 7. Ranked Solo readability — the name dialog and the ranked cards
+ * ----------------------------------------------------------------- */
+
+const RANKED_CARD_SELECTORS = [
+  ".ranked-summary-card strong",
+  ".ranked-live-stat strong",
+  ".ranked-leaderboard-item-name",
+];
+
+function extractRuleBodyContaining(source, fragment) {
+  const index = source.indexOf(fragment);
+
+  if (index < 0) {
+    return null;
+  }
+
+  const open = source.indexOf("{", index);
+  const close = source.indexOf("}", open);
+  return open < 0 || close < 0 ? null : source.slice(open + 1, close);
+}
+
+function cssValue(body, property) {
+  const match = new RegExp(`(?:^|[;{\\s])${property}\\s*:\\s*([^;]+);`).exec(body);
+  return match ? match[1].trim() : null;
+}
+
+function hexToRgb(hex) {
+  const value = String(hex).replace("#", "").trim();
+  const full = value.length === 3 ? value.split("").map((channel) => channel + channel).join("") : value;
+  return [0, 2, 4].map((offset) => Number.parseInt(full.slice(offset, offset + 2), 16));
+}
+
+/** A translucent white surface is at its lightest over white and at its darkest over black. */
+function translucentWhiteOver(alpha, background) {
+  return [0, 1, 2].map((channel) => 255 * alpha + background[channel] * (1 - alpha));
+}
+
+function relativeLuminance(rgb) {
+  const [red, green, blue] = rgb.map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(foreground, background) {
+  const [lighter, darker] = [relativeLuminance(foreground), relativeLuminance(background)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+test("the name field is inked from its own light surface instead of from the room", () => {
+  const fieldRule = extractCssRuleBody(stylesSource, ".room-form-field input");
+
+  assert.match(fieldRule, /color:\s*var\(--field-text\)/);
+  // The touch height and the light fill that made the field usable stay untouched.
+  assert.match(fieldRule, /min-height:\s*44px/);
+  assert.match(fieldRule, /background:\s*rgba\(255,\s*255,\s*255,\s*0\.94\)/);
+
+  assert.match(extractCssRuleBody(stylesSource, ".room-form-field input::placeholder"), /color:\s*var\(--field-placeholder\)/);
+  assert.match(extractCssRuleBody(stylesSource, ".room-form-field input::selection"), /color:\s*#ffffff/);
+  assert.match(extractCssRuleBody(stylesSource, ".room-form-field input:focus"), /outline:\s*2px solid var\(--field-focus-ring/);
+});
+
+test("the dark room keeps its own light text while only the field and card ink goes dark", () => {
+  const observatory = extractCssRuleBody(vvipThemeCss, 'body[data-vip-theme="vvip-observatory"]');
+
+  // The room's own copy stays light on the dark glass; that is what must not be flipped.
+  assert.match(observatory, /--text:\s*#f3f0ff/);
+  assert.match(observatory, /--muted:\s*#c4bcec/);
+
+  // The light surfaces get their own, darker ink.
+  const fieldText = hexToRgb(cssValue(observatory, "--field-text"));
+  const cardText = hexToRgb(cssValue(observatory, "--card-text"));
+
+  assert.ok(relativeLuminance(fieldText) < 0.1, "--field-text must be a dark ink");
+  assert.ok(relativeLuminance(cardText) < 0.1, "--card-text must be a dark ink");
+  assert.notEqual(cssValue(observatory, "--field-text"), "#f3f0ff");
+});
+
+test("every ranked card text node is inked from the card and none from the room", () => {
+  // From the white room summary card down to the ranked panel: every surface in this stretch is
+  // the same translucent white, in both the web host and the Discord host.
+  // Anchored on the leading newline: the same selector also appears inside the Discord host
+  // override block, and only the standalone rule starts a line.
+  const rankedRegion = stylesSource.slice(stylesSource.indexOf("\n.room-summary-card {"), stylesSource.indexOf("\n.room-hub-card {"));
+
+  assert.ok(rankedRegion.length > 0, "the ranked panel region must be locatable");
+  // The cards are white at 0.82 alpha, so a room-flavoured ink would vanish in the dark room.
+  assert.doesNotMatch(rankedRegion, /color:\s*var\(--muted\)/);
+  assert.doesNotMatch(rankedRegion, /color:\s*var\(--text\)/);
+  assert.match(rankedRegion, /color:\s*var\(--card-text\)/);
+  assert.match(rankedRegion, /color:\s*var\(--card-muted\)/);
+
+  RANKED_CARD_SELECTORS.forEach((selector) => {
+    const rule = extractRuleBodyContaining(rankedRegion, selector);
+    assert.match(rule || "", /color:\s*var\(--card-text\)/, `${selector} must be inked from the card`);
+  });
+
+  // The Discord host re-inks the cards at a higher specificity, so it has to agree.
+  const discordCardRule = extractRuleBodyContaining(stylesSource, 'body[data-runtime-kind="discord"] .ranked-summary-card strong');
+  const discordMutedRule = extractRuleBodyContaining(stylesSource, 'body[data-runtime-kind="discord"] .ranked-live-stat-label');
+
+  assert.match(discordCardRule || "", /color:\s*var\(--card-text\)/);
+  assert.match(discordMutedRule || "", /color:\s*var\(--card-muted\)/);
+});
+
+test("the observatory Name button is inked for the light card and keeps its press and focus states", () => {
+  const buttonBase = extractCssRuleBody(vvipThemeCss, 'body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button');
+  const pressed = extractCssRuleBody(vvipThemeCss, 'body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button:active');
+  const focus = extractCssRuleBody(vvipThemeCss, 'body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button:focus-visible');
+
+  assert.match(buttonBase, /color:\s*var\(--card-text\)/);
+  // The override outranks `.chip-button:active`, so the pressed state has to be restated here or
+  // the button would give no feedback at all.
+  assert.ok(pressed, "the pressed state must be restated on the more specific rule");
+  assert.match(pressed, /color:\s*#f3f0ff/);
+  assert.match(pressed, /background:\s*#3a2a63/);
+  assert.match(focus, /outline:\s*2px solid/);
+});
+
+test("the dream room ink clears WCAG AA on the lightest and darkest card and field surfaces", () => {
+  const palettes = ["vvip-moonlight", "vvip-observatory", "vvip-sakura"];
+
+  palettes.forEach((themeId) => {
+    const palette = extractCssRuleBody(vvipThemeCss, `body[data-vip-theme="${themeId}"]`);
+    const roomBackground = hexToRgb(cssValue(palette, "--bg"));
+
+    // White at 0.82 alpha: brightest over white, dimmest over black.
+    const cardSurfaces = [
+      hexToRgb("#ffffff"),
+      translucentWhiteOver(0.82, roomBackground),
+      translucentWhiteOver(0.82, [0, 0, 0]),
+    ];
+    const fieldSurfaces = [hexToRgb("#ffffff"), translucentWhiteOver(0.94, [0, 0, 0])];
+
+    const cardInks = [cssValue(palette, "--card-text"), cssValue(palette, "--card-muted")];
+    const fieldInks = [cssValue(palette, "--field-text"), cssValue(palette, "--field-placeholder")];
+
+    cardSurfaces.forEach((surface) => {
+      cardInks.forEach((ink) => {
+        const ratio = contrastRatio(hexToRgb(ink), surface);
+        assert.ok(ratio >= 4.5, `${themeId} ${ink} on a ranked card is ${ratio.toFixed(2)}:1, below AA 4.5:1`);
+      });
+    });
+
+    fieldSurfaces.forEach((surface) => {
+      fieldInks.forEach((ink) => {
+        const ratio = contrastRatio(hexToRgb(ink), surface);
+        assert.ok(ratio >= 4.5, `${themeId} ${ink} in the name field is ${ratio.toFixed(2)}:1, below AA 4.5:1`);
+      });
+    });
+  });
+});
+
+test("the Enter Your Name dialog keeps one deliberate gap between the field and its buttons", () => {
+  const actionsRule = extractCssRuleBody(stylesSource, ".ranked-profile-card .room-hub-inline-actions");
+  const marginTop = actionsRule ? /margin-top:\s*(\d+)px/.exec(actionsRule) : null;
+
+  assert.ok(actionsRule, "the ranked profile action row needs its own spacing rule");
+  assert.ok(marginTop, "the gap must come from a single explicit margin");
+  assert.ok(Number(marginTop[1]) >= 16 && Number(marginTop[1]) <= 20, `the gap must sit in the 16-20px band, got ${marginTop[1]}px`);
+
+  // The form only supplies the label -> input gap, so no second margin is stacked into the space.
+  const formField = extractCssRuleBody(stylesSource, ".room-form-field");
+  assert.match(formField, /gap:\s*6px/);
+  assert.doesNotMatch(formField, /margin/);
+
+  // Touch sizes and the narrow-window fallback are untouched.
+  assert.match(extractCssRuleBody(stylesSource, ".room-form-field input"), /min-height:\s*44px/);
+  assert.match(extractCssRuleBody(stylesSource, "\n.room-hub-inline-actions"), /flex-wrap:\s*wrap/);
+});
+
+/* ----------------------------------------------------------------- *
+ * 8. The hidden, read-only diagnostics entry
+ * ----------------------------------------------------------------- */
+
+test("the diagnostics panel needs either the query flag or the developer chord", () => {
+  assert.match(appSource, /function isRuntimeDebugActive\(\)/);
+  assert.match(appSource, /function toggleRuntimeDiagnostics\(\)/);
+  assert.match(extractFunctionSource("isRuntimeDebugActive"), /isRuntimeDebugEnabled\(\)\s*\|\|\s*runtimeDebugShortcutActive/);
+  assert.match(extractFunctionSource("setupRuntimeDiagnostics"), /!isRuntimeDebugActive\(\)/);
+  assert.match(extractFunctionSource("toggleRuntimeDiagnostics"), /setupRuntimeDiagnostics\(\)/);
+
+  // Rendered by the query flag on load and by the chord on demand - nowhere else.
+  assert.match(appSource, /if \(!guardVipEntry\(\)\) \{\s*setupRuntimeDiagnostics\(\);/);
+});
+
+test("the developer chord is an explicit three-key combination with no on-screen affordance", () => {
+  assert.match(appSource, /const isShortcutChord = \(event\.ctrlKey \|\| event\.metaKey\) && event\.shiftKey && !event\.altKey/);
+  assert.match(appSource, /event\.key\.toLowerCase\(\) !== "d"/);
+  assert.match(appSource, /event\.preventDefault\(\);\s*toggleRuntimeDiagnostics\(\);/);
+
+  // No player-facing page advertises the panel or its chord.
+  [indexPage, lobbyPage, playerPage].forEach((page) => {
+    assert.doesNotMatch(page, /runtime-debug|runtime-diagnostics|Shift \+ D/i);
+  });
+});
+
+test("the diagnostics entry is read-only, reports the required fields and never fabricates a host", () => {
+  const diagnosticsSource = extractFunctionSource("collectRuntimeDiagnostics");
+  const panelSource = extractFunctionSource("setupRuntimeDiagnostics");
+  const toggleSource = extractFunctionSource("toggleRuntimeDiagnostics");
+
+  [diagnosticsSource, panelSource, toggleSource].forEach((source) => {
+    // The panel must report the runtime, never write it: forcing `runtime.kind` would fake the
+    // exact condition the panel exists to measure.
+    assert.doesNotMatch(source, /runtime\.kind\s*=\s*[^=]/);
+    assert.doesNotMatch(source, /syncRuntimeSurface\(/);
+    assert.doesNotMatch(source, /dataset\.runtimeKind\s*=/);
+    assert.doesNotMatch(source, /applyDiscordRuntimeDetails\(/);
+  });
+
+  // `runtime.kind` is read straight off the state the rest of the app uses.
+  assert.match(diagnosticsSource, /\["runtime\.kind", state\.runtime\.kind\]/);
+
+  ["runtime.kind", "ready() handshake", "viewport", "grid column count", "active theme", "build css / js"].forEach((label) => {
+    assert.match(diagnosticsSource, new RegExp(`\\["${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}",`), `the panel must report ${label}`);
+  });
+
+  // No tokens, secrets or profile data.
+  assert.doesNotMatch(diagnosticsSource, /token|secret|authorization/i);
+  assert.doesNotMatch(diagnosticsSource, /global_name|avatar|discriminator|email/i);
+});

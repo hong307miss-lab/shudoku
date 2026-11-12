@@ -81,6 +81,14 @@ body[data-vip-theme="vvip-moonlight"] {
   --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46), 0 4px 10px rgba(6, 28, 46, 0.14);
   --modal-surface: linear-gradient(180deg, rgba(241, 250, 255, 0.9), rgba(198, 226, 246, 0.86));
   --modal-border: rgba(170, 212, 240, 0.4);
+  /* Surface ink: the name field and the ranked cards stay light here, and this room's own `--text`
+   * is already dark, so the values simply mirror the room. Declared anyway, so every dream room
+   * states the full variable set and a later room can never inherit a stray light ink. */
+  --field-text: #08202f;
+  --field-placeholder: #2c4c65;
+  --field-focus-ring: #3f8fc4;
+  --card-text: #08202f;
+  --card-muted: #2c4c65;
   --heading-glow: 0 0 22px rgba(198, 230, 255, 0.5);
   --panel-backdrop: blur(16px) saturate(126%);
   --button-backdrop: blur(9px) saturate(120%);
@@ -145,6 +153,15 @@ body[data-vip-theme="vvip-observatory"] {
   --button-shadow: inset 0 1px 0 rgba(214, 196, 255, 0.2), 0 4px 12px rgba(3, 1, 18, 0.28);
   --modal-surface: linear-gradient(180deg, rgba(46, 32, 84, 0.94), rgba(26, 16, 54, 0.92));
   --modal-border: rgba(158, 140, 226, 0.36);
+  /* The modal itself is dark, but the name field inside it and the ranked cards are light
+   * surfaces. Their ink is chosen from those surfaces rather than from the room, so the room can
+   * keep its light `--text` on the starfield without the typed name disappearing into a white
+   * field or the rank vanishing on a white card. */
+  --field-text: #241a4a;
+  --field-placeholder: #625791;
+  --field-focus-ring: #d3b063;
+  --card-text: #241a4a;
+  --card-muted: #544a80;
   --heading-glow: 0 0 26px rgba(190, 168, 255, 0.5);
   --panel-backdrop: blur(16px) saturate(130%);
   --button-backdrop: blur(9px) saturate(125%);
@@ -208,6 +225,12 @@ body[data-vip-theme="vvip-sakura"] {
   --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 4px 10px rgba(70, 24, 44, 0.12);
   --modal-surface: linear-gradient(180deg, rgba(255, 252, 249, 0.93), rgba(255, 240, 240, 0.9));
   --modal-border: rgba(214, 172, 190, 0.4);
+  /* Surface ink, mirroring this room's own dark `--text` on the light field and card surfaces. */
+  --field-text: #26151f;
+  --field-placeholder: #6b4a5a;
+  --field-focus-ring: #c9a24a;
+  --card-text: #26151f;
+  --card-muted: #6b4a5a;
   --heading-glow: 0 0 22px rgba(255, 214, 200, 0.42);
   --panel-backdrop: blur(15px) saturate(120%);
   --button-backdrop: blur(9px) saturate(118%);
@@ -259,15 +282,44 @@ body[data-vvip-theme] .keypad-panel {
 
 /* Keeps the light rail copy readable straight on the artwork without darkening a whole card. */
 body[data-vvip-theme] .keypad-panel .control-label,
-body[data-vvip-theme] .keypad-panel .legend,
-body[data-vvip-theme] .keypad-panel .ranked-leaderboard-status {
+body[data-vvip-theme] .keypad-panel .legend {
   text-shadow: var(--vvip-rail-text-shadow, 0 1px 2px rgba(255, 255, 255, 0.55));
 }
 
 body[data-vvip-theme="vvip-observatory"] .keypad-panel .control-label,
-body[data-vvip-theme="vvip-observatory"] .keypad-panel .legend,
-body[data-vvip-theme="vvip-observatory"] .keypad-panel .ranked-leaderboard-status {
+body[data-vvip-theme="vvip-observatory"] .keypad-panel .legend {
   --vvip-rail-text-shadow: 0 1px 3px rgba(6, 2, 22, 0.7);
+}
+
+/* The Name button sits on the light ranked card, so it is inked and filled like the card's own
+ * control. The room's button colours are tuned for the dark artwork and would leave light glyphs
+ * on a mid-purple fill here. The rule is more specific than `.chip-button:active`, so the pressed,
+ * hover and focus states are restated here instead of being silently suppressed. */
+body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button {
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--card-text);
+  border-color: #7b6fb0;
+}
+
+body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button:hover {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button.active,
+body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button:active {
+  background: #3a2a63;
+  color: #f3f0ff;
+}
+
+body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button:focus-visible {
+  outline: 2px solid var(--field-focus-ring, #d3b063);
+  outline-offset: 2px;
+}
+
+body[data-vvip-theme="vvip-observatory"] .ranked-summary-card .chip-button[disabled] {
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--card-muted);
+  cursor: not-allowed;
 }
 
 body[data-vvip-theme] .keypad-button,
