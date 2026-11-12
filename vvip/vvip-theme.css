@@ -32,37 +32,40 @@ body[data-vvip-theme] {
 
 body[data-vip-theme="vvip-moonlight"] {
   --bg: #0a1a28;
-  --panel: rgba(233, 245, 253, 0.6);
+  /* Ice-blue glass: the greenhouse stays visible through the panels instead of being covered by
+   * near-white cards. `--text` stays dark because the master artwork is a bright, cool scene. */
+  --panel: rgba(198, 228, 248, 0.4);
   --line: #2d5170;
   --soft-line: #93b2c9;
-  --text: #102331;
-  --muted: #4c6b82;
-  --given: #7d9bb2;
-  --player-a: #1f5f96;
-  --player-b: #0f7b85;
+  --text: #0a1c2a;
+  --muted: #2c4c65;
+  --given: #5c7d95;
+  --player-a: #10497a;
+  --player-b: #0b6270;
   --accent: #3f8fc4;
-  --selected: #d8edfb;
-  --related: #e6f3fc;
-  --matched-digit: #c3e2f6;
-  --matched-digit-text: #1d4b6b;
+  --selected: rgba(210, 236, 255, 0.92);
+  --related: rgba(226, 242, 253, 0.8);
+  --matched-digit: rgba(178, 220, 248, 0.92);
+  --matched-digit-text: #123c58;
+  --cell-text: #0a1c2a;
   --shadow: 0 22px 46px rgba(4, 18, 32, 0.38);
-  --button-bg: rgba(245, 251, 255, 0.62);
+  --button-bg: rgba(216, 238, 252, 0.42);
   --button-border: #5b8db2;
-  --board-bg: rgba(244, 251, 255, 0.56);
-  --cell-bg: rgba(255, 255, 255, 0.88);
-  --feedback-surface: rgba(233, 245, 253, 0.62);
+  --board-bg: rgba(160, 200, 230, 0.26);
+  --cell-bg: rgba(238, 249, 255, 0.92);
+  --feedback-surface: rgba(184, 220, 244, 0.38);
   --page-overlay:
     radial-gradient(circle at 50% 12%, rgba(214, 236, 255, 0.18), transparent 28%),
     linear-gradient(180deg, rgba(6, 18, 32, 0.34), rgba(3, 10, 20, 0.6));
   --page-ambient:
     radial-gradient(circle at 14% 78%, rgba(150, 205, 240, 0.18), transparent 24%),
     radial-gradient(circle at 86% 22%, rgba(198, 224, 255, 0.14), transparent 22%);
-  --panel-border: rgba(120, 168, 202, 0.28);
+  --panel-border: rgba(170, 212, 240, 0.42);
   --panel-surface:
-    linear-gradient(180deg, rgba(250, 253, 255, 0.68), rgba(226, 240, 250, 0.48)),
-    radial-gradient(circle at top center, rgba(255, 255, 255, 0.28), transparent 48%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.56), inset 0 0 0 1px rgba(160, 200, 230, 0.12);
-  --status-surface: linear-gradient(180deg, rgba(246, 252, 255, 0.66), rgba(224, 239, 249, 0.46));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(150, 196, 230, 0.12)),
+    radial-gradient(circle at top center, rgba(214, 238, 255, 0.34), transparent 52%);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.52), inset 0 0 0 1px rgba(160, 205, 235, 0.2);
+  --status-surface: linear-gradient(180deg, rgba(222, 240, 252, 0.46), rgba(166, 206, 236, 0.3));
   /* Silver-blue board frame. */
   --board-frame:
     linear-gradient(145deg, #dcebf7, #7ba3c4),
@@ -70,20 +73,20 @@ body[data-vip-theme="vvip-moonlight"] {
   --board-frame-shadow: inset 0 1px 0 rgba(244, 252, 255, 0.4), 0 20px 38px rgba(4, 18, 32, 0.36);
   --board-inner-shadow: inset 0 0 0 2px rgba(240, 250, 255, 0.24);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(238, 247, 254, 0.84)),
-    radial-gradient(circle at bottom right, rgba(200, 228, 248, 0.34), transparent 48%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(230, 244, 253, 0.88)),
+    radial-gradient(circle at bottom right, rgba(198, 226, 246, 0.38), transparent 46%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  --button-surface: linear-gradient(180deg, rgba(252, 254, 255, 0.9), rgba(228, 241, 251, 0.72));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 4px 12px rgba(10, 40, 62, 0.18);
-  --modal-surface: linear-gradient(180deg, rgba(250, 253, 255, 0.96), rgba(230, 242, 251, 0.92));
-  --modal-border: rgba(120, 168, 202, 0.3);
+  --button-surface: linear-gradient(180deg, rgba(248, 253, 255, 0.66), rgba(196, 226, 246, 0.42));
+  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 6px 14px rgba(6, 28, 46, 0.22);
+  --modal-surface: linear-gradient(180deg, rgba(241, 250, 255, 0.9), rgba(198, 226, 246, 0.86));
+  --modal-border: rgba(170, 212, 240, 0.4);
   --heading-glow: 0 0 22px rgba(198, 230, 255, 0.5);
-  --panel-backdrop: blur(12px) saturate(118%);
-  --button-backdrop: blur(7px);
-  --board-backdrop: blur(9px);
-  --status-backdrop: blur(9px);
-  --feedback-backdrop: blur(7px);
-  --modal-backdrop-filter: blur(16px);
+  --panel-backdrop: blur(16px) saturate(126%);
+  --button-backdrop: blur(9px) saturate(120%);
+  --board-backdrop: blur(12px);
+  --status-backdrop: blur(12px);
+  --feedback-backdrop: blur(9px);
+  --modal-backdrop-filter: blur(18px) saturate(120%);
 }
 
 /* ---------------------------------------------------------------- *
@@ -92,58 +95,61 @@ body[data-vip-theme="vvip-moonlight"] {
 
 body[data-vip-theme="vvip-observatory"] {
   --bg: #150b2e;
-  --panel: rgba(232, 236, 255, 0.6);
+  /* Dark starfield glass. This is the one room whose chrome is darker than its board, so the
+   * panel text flips light while the sudoku keeps its own dark `--cell-text` on light tiles. */
+  --panel: rgba(28, 18, 58, 0.58);
   --line: #3a2a63;
   --soft-line: #8b83c4;
-  --text: #1a1338;
-  --muted: #564f80;
-  --given: #7d78ab;
+  --text: #ece8ff;
+  --muted: #b9b0e4;
+  --given: #6a6398;
   --player-a: #4b3fa8;
   --player-b: #0f8a86;
   --accent: #d3b063;
   --selected: #eadfb6;
   --related: #e6e1f8;
   --matched-digit: #d8c98f;
-  --matched-digit-text: #4a3a12;
-  --shadow: 0 22px 46px rgba(6, 2, 22, 0.44);
-  --button-bg: rgba(244, 244, 255, 0.66);
-  --button-border: #7a6fb0;
-  --board-bg: rgba(244, 243, 255, 0.58);
-  --cell-bg: rgba(255, 255, 255, 0.88);
-  --feedback-surface: rgba(232, 234, 255, 0.62);
+  --matched-digit-text: #3f300c;
+  --cell-text: #1a1338;
+  --shadow: 0 22px 46px rgba(6, 2, 22, 0.5);
+  --button-bg: rgba(52, 38, 96, 0.6);
+  --button-border: #d3b063;
+  --board-bg: rgba(20, 12, 44, 0.6);
+  --cell-bg: rgba(246, 244, 255, 0.93);
+  --feedback-surface: rgba(42, 30, 78, 0.6);
   --page-overlay:
     radial-gradient(circle at 50% 10%, rgba(206, 184, 255, 0.2), transparent 30%),
     linear-gradient(180deg, rgba(14, 6, 34, 0.38), rgba(8, 3, 22, 0.64));
   --page-ambient:
     radial-gradient(circle at 16% 24%, rgba(142, 178, 255, 0.18), transparent 22%),
     radial-gradient(circle at 84% 76%, rgba(216, 178, 255, 0.16), transparent 22%);
-  --panel-border: rgba(150, 138, 210, 0.26);
+  --panel-border: rgba(158, 140, 226, 0.34);
   --panel-surface:
-    linear-gradient(180deg, rgba(250, 249, 255, 0.66), rgba(226, 224, 250, 0.46)),
-    radial-gradient(circle at top center, rgba(214, 196, 255, 0.3), transparent 48%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.52), inset 0 0 0 1px rgba(158, 146, 214, 0.12);
-  --status-surface: linear-gradient(180deg, rgba(246, 245, 255, 0.64), rgba(224, 222, 250, 0.44));
+    linear-gradient(180deg, rgba(126, 106, 200, 0.26), rgba(28, 16, 58, 0.16)),
+    radial-gradient(circle at 22% 8%, rgba(211, 176, 99, 0.16), transparent 44%);
+  --panel-inset: inset 0 1px 0 rgba(206, 190, 255, 0.24), inset 0 0 0 1px rgba(140, 120, 210, 0.18);
+  --status-surface: linear-gradient(180deg, rgba(58, 42, 104, 0.62), rgba(30, 18, 62, 0.5));
   /* Gold-purple board frame. */
   --board-frame:
-    linear-gradient(145deg, #e3ce92, #6a56b0),
+    linear-gradient(145deg, #efd79a, #5b48a4),
     repeating-linear-gradient(90deg, rgba(255, 246, 214, 0.12), rgba(255, 246, 214, 0.12) 3px, rgba(80, 62, 150, 0.1) 3px, rgba(80, 62, 150, 0.1) 10px);
-  --board-frame-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.4), 0 20px 38px rgba(6, 2, 24, 0.44);
-  --board-inner-shadow: inset 0 0 0 2px rgba(238, 228, 255, 0.24);
+  --board-frame-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.36), 0 22px 42px rgba(3, 1, 16, 0.6);
+  --board-inner-shadow: inset 0 0 0 2px rgba(211, 176, 99, 0.24);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(240, 238, 255, 0.84)),
-    radial-gradient(circle at bottom right, rgba(210, 198, 255, 0.36), transparent 48%);
-  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  --button-surface: linear-gradient(180deg, rgba(253, 252, 255, 0.9), rgba(232, 228, 252, 0.72));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 4px 12px rgba(14, 6, 40, 0.24);
-  --modal-surface: linear-gradient(180deg, rgba(250, 249, 255, 0.96), rgba(232, 228, 252, 0.93));
-  --modal-border: rgba(150, 138, 210, 0.28);
-  --heading-glow: 0 0 22px rgba(224, 202, 255, 0.46);
-  --panel-backdrop: blur(12px) saturate(120%);
-  --button-backdrop: blur(7px);
-  --board-backdrop: blur(9px);
-  --status-backdrop: blur(9px);
-  --feedback-backdrop: blur(7px);
-  --modal-backdrop-filter: blur(16px);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 236, 255, 0.9)),
+    radial-gradient(circle at bottom right, rgba(206, 192, 255, 0.4), transparent 48%);
+  --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --button-surface: linear-gradient(180deg, rgba(96, 74, 158, 0.5), rgba(46, 30, 88, 0.42));
+  --button-shadow: inset 0 1px 0 rgba(214, 196, 255, 0.28), 0 6px 16px rgba(3, 1, 18, 0.42);
+  --modal-surface: linear-gradient(180deg, rgba(46, 32, 84, 0.94), rgba(26, 16, 54, 0.92));
+  --modal-border: rgba(158, 140, 226, 0.36);
+  --heading-glow: 0 0 26px rgba(190, 168, 255, 0.5);
+  --panel-backdrop: blur(16px) saturate(130%);
+  --button-backdrop: blur(9px) saturate(125%);
+  --board-backdrop: blur(12px);
+  --status-backdrop: blur(12px);
+  --feedback-backdrop: blur(9px);
+  --modal-backdrop-filter: blur(18px) saturate(125%);
 }
 
 /* ---------------------------------------------------------------- *
@@ -152,37 +158,40 @@ body[data-vip-theme="vvip-observatory"] {
 
 body[data-vip-theme="vvip-sakura"] {
   --bg: #2b1622;
-  --panel: rgba(255, 249, 243, 0.66);
+  /* Warm washi glass: thin, lightly tinted, and translucent enough that the moon garden reads
+   * through the rails. Dark plum text stays readable on the light master artwork. */
+  --panel: rgba(255, 246, 240, 0.5);
   --line: #5f3b4c;
   --soft-line: #c39aad;
-  --text: #2e1b25;
-  --muted: #6f4d5d;
-  --given: #a0778a;
+  --text: #2b1a24;
+  --muted: #6b4a5a;
+  --given: #9a7186;
   --player-a: #9c4a6f;
-  --player-b: #0f8a7f;
+  --player-b: #0b7a70;
   --accent: #c9a24a;
-  --selected: #ffd9e6;
-  --related: #ffe9f0;
-  --matched-digit: #f7d9b8;
+  --selected: rgba(255, 219, 232, 0.94);
+  --related: rgba(255, 236, 242, 0.82);
+  --matched-digit: rgba(250, 224, 190, 0.94);
   --matched-digit-text: #7a4a15;
+  --cell-text: #2b1a24;
   --shadow: 0 22px 46px rgba(38, 12, 26, 0.34);
-  --button-bg: rgba(255, 250, 245, 0.7);
+  --button-bg: rgba(255, 248, 243, 0.46);
   --button-border: #b98aa0;
-  --board-bg: rgba(255, 250, 245, 0.62);
-  --cell-bg: rgba(255, 255, 255, 0.9);
-  --feedback-surface: rgba(255, 247, 241, 0.68);
+  --board-bg: rgba(255, 240, 232, 0.3);
+  --cell-bg: rgba(255, 252, 248, 0.93);
+  --feedback-surface: rgba(255, 242, 236, 0.44);
   --page-overlay:
     radial-gradient(circle at 50% 12%, rgba(255, 226, 236, 0.2), transparent 30%),
     linear-gradient(180deg, rgba(40, 16, 28, 0.3), rgba(26, 9, 18, 0.56));
   --page-ambient:
     radial-gradient(circle at 14% 28%, rgba(255, 200, 220, 0.2), transparent 24%),
     radial-gradient(circle at 86% 72%, rgba(246, 214, 150, 0.14), transparent 22%);
-  --panel-border: rgba(200, 150, 172, 0.26);
+  --panel-border: rgba(214, 172, 190, 0.4);
   --panel-surface:
-    linear-gradient(180deg, rgba(255, 253, 250, 0.72), rgba(252, 238, 234, 0.52)),
-    radial-gradient(circle at top center, rgba(255, 240, 220, 0.34), transparent 46%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.56), inset 0 0 0 1px rgba(214, 176, 190, 0.1);
-  --status-surface: linear-gradient(180deg, rgba(255, 252, 248, 0.7), rgba(253, 238, 236, 0.5));
+    linear-gradient(180deg, rgba(255, 253, 250, 0.46), rgba(252, 226, 234, 0.24)),
+    radial-gradient(circle at top center, rgba(255, 236, 214, 0.4), transparent 52%);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 1px rgba(220, 180, 196, 0.16);
+  --status-surface: linear-gradient(180deg, rgba(255, 250, 246, 0.5), rgba(253, 230, 234, 0.32));
   /* Washi-paper / soft gold board frame. */
   --board-frame:
     linear-gradient(145deg, #fbe3ea, #c9a24a),
@@ -190,20 +199,20 @@ body[data-vip-theme="vvip-sakura"] {
   --board-frame-shadow: inset 0 1px 0 rgba(255, 246, 238, 0.5), 0 20px 36px rgba(40, 14, 28, 0.3);
   --board-inner-shadow: inset 0 0 0 2px rgba(255, 246, 240, 0.28);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 244, 244, 0.86)),
-    radial-gradient(circle at bottom right, rgba(255, 224, 226, 0.38), transparent 48%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 242, 244, 0.9)),
+    radial-gradient(circle at bottom right, rgba(255, 222, 228, 0.42), transparent 48%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
-  --button-surface: linear-gradient(180deg, rgba(255, 254, 252, 0.92), rgba(253, 240, 238, 0.78));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 4px 12px rgba(70, 24, 44, 0.16);
-  --modal-surface: linear-gradient(180deg, rgba(255, 253, 251, 0.97), rgba(255, 242, 240, 0.94));
-  --modal-border: rgba(200, 150, 172, 0.28);
+  --button-surface: linear-gradient(180deg, rgba(255, 253, 251, 0.66), rgba(253, 232, 232, 0.46));
+  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 6px 14px rgba(70, 24, 44, 0.18);
+  --modal-surface: linear-gradient(180deg, rgba(255, 252, 249, 0.93), rgba(255, 240, 240, 0.9));
+  --modal-border: rgba(214, 172, 190, 0.4);
   --heading-glow: 0 0 22px rgba(255, 214, 200, 0.42);
-  --panel-backdrop: blur(11px) saturate(116%);
-  --button-backdrop: blur(7px);
-  --board-backdrop: blur(8px);
-  --status-backdrop: blur(8px);
-  --feedback-backdrop: blur(6px);
-  --modal-backdrop-filter: blur(15px);
+  --panel-backdrop: blur(15px) saturate(120%);
+  --button-backdrop: blur(9px) saturate(118%);
+  --board-backdrop: blur(12px);
+  --status-backdrop: blur(12px);
+  --feedback-backdrop: blur(9px);
+  --modal-backdrop-filter: blur(17px) saturate(118%);
 }
 
 /* ---------------------------------------------------------------- *

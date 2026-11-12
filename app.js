@@ -1,5 +1,5 @@
 const DISCORD_CLIENT_ID = "1541798952150499349";
-const DISCORD_READY_TIMEOUT_MS = 5000;
+const DISCORD_READY_TIMEOUT_MS = 8000;
 const DISCORD_AUTH_STORAGE_KEY = "discord-sudoku-discord-auth-v1";
 const ROOM_LINK_PARAM = "roomId";
 const ROOM_CLIENT_ID_KEY = "discord-sudoku-room-client-id-v1";
@@ -21,6 +21,9 @@ let roundEffectSweepId = null;
 let freezeCountdownTickId = null;
 let sessionStorageFallback = {};
 let discordSdk = null;
+// The `ready()` promise is kept so a handshake that outlives the timeout can still promote the
+// surface once it lands, instead of dropping the Activity back to the web layout for the session.
+let discordReadyHandshake = null;
 let roomSocket = null;
 let roomSocketReadyPromise = null;
 let roomReconnectPending = false;
@@ -47,7 +50,10 @@ function getRoomMatchMode() {
 
 function revealDiscordActivitySurface() {
   document.body.classList.remove("discord-pending");
-  document.body.style.backgroundColor = "#ffffff";
+  // An inline `background-color` outranks every stylesheet rule, so the hard-coded white that used
+  // to live here beat `body[data-vvip-theme] { background-color: var(--bg) }` and no VVIP room
+  // could ever paint its own base colour. `body` already declares `background: var(--bg)`.
+  document.body.style.removeProperty("background-color");
 }
 
 function bootstrapOnce() {
@@ -98,6 +104,49 @@ function isLikelyDiscordFrame() {
   );
 }
 
+/**
+ * Copies the identity carried by a completed `ready()` handshake. Callers set
+ * `state.runtime.kind` themselves so the promotion stays visible right beside the awaited
+ * handshake — the runtime must never claim Discord before `ready()` resolves.
+ */
+function applyDiscordRuntimeDetails() {
+  clearDiscordRuntimeError();
+  state.runtime.guildId = discordSdk?.guildId || null;
+  state.runtime.channelId = discordSdk?.channelId || discordSdk?.instanceId || "";
+  state.runtime.instanceId = discordSdk?.instanceId || null;
+  state.runtime.channelType = "";
+}
+
+/**
+ * On a cold Activity start `discordSdk.ready()` can outlive the timeout. Pinning the page to the
+ * web layout for the rest of the session used to be the only outcome; instead, keep the handshake
+ * that was already started and promote the surface the moment it resolves. `ready()` is never
+ * called a second time, and nothing here forces a Discord identity on a plain web page.
+ */
+function promoteSurfaceWhenDiscordHandshakeLands() {
+  if (!discordReadyHandshake) {
+    return;
+  }
+
+  discordReadyHandshake.then(
+    () => {
+      if (state.runtime.kind === "discord") {
+        return;
+      }
+
+      // The handshake landed after the timeout: promote the surface exactly as a fast ready() would.
+      state.runtime.kind = "discord";
+      applyDiscordRuntimeDetails();
+      syncRuntimeSurface();
+
+      if (appBootstrapped) {
+        renderRoomHub();
+      }
+    },
+    () => {},
+  );
+}
+
 async function initRuntimeEnvironment() {
   const DiscordSDKConstructor = await resolveDiscordSdkConstructor();
   setDiscordAuthState(readStoredDiscordAuth());
@@ -106,6 +155,7 @@ async function initRuntimeEnvironment() {
     state.runtime.kind = "web";
     clearDiscordRuntimeError();
     revealDiscordActivitySurface();
+    syncRuntimeSurface();
     startApp();
     return;
   }
@@ -116,19 +166,20 @@ async function initRuntimeEnvironment() {
     // object here left `discordSdk.clientId` as an object, so the RPC handshake never echoed a
     // valid `client_id`, `ready()` never resolved, and the runtime silently fell back to "web".
     discordSdk = new DiscordSDKConstructor(DISCORD_CLIENT_ID);
+    discordReadyHandshake = discordSdk.ready();
+    // A late rejection must not surface as an unhandled rejection once the race below has settled.
+    discordReadyHandshake.catch(() => {});
+
     await Promise.race([
-      discordSdk.ready(),
+      discordReadyHandshake,
       new Promise((_, reject) => {
         window.setTimeout(() => reject(new Error("Discord SDK ready() timed out")), DISCORD_READY_TIMEOUT_MS);
       }),
     ]);
 
+    // `ready()` resolved inside the race above — only now may the runtime claim Discord.
     state.runtime.kind = "discord";
-    clearDiscordRuntimeError();
-    state.runtime.guildId = discordSdk.guildId || null;
-    state.runtime.channelId = discordSdk.channelId || discordSdk.instanceId || "";
-    state.runtime.instanceId = discordSdk.instanceId || null;
-    state.runtime.channelType = "";
+    applyDiscordRuntimeDetails();
 
     if (discordSdk.commands?.getChannel && discordSdk.channelId) {
       try {
@@ -146,12 +197,17 @@ async function initRuntimeEnvironment() {
     state.runtime.channelType = "";
     if (isLikelyDiscordFrame()) {
       setDiscordRuntimeError(error?.message || "Discord SDK failed to initialize.");
+      promoteSurfaceWhenDiscordHandshakeLands();
     } else {
       clearDiscordRuntimeError();
     }
   }
 
   revealDiscordActivitySurface();
+  // Sync here, not only from `bootstrap()`. The first Lobby visit opens the mode picker and never
+  // runs `bootstrap()`, so the runtime surface used to stay unwritten and `body` carried no
+  // `data-runtime-kind` at all — every Discord-only rule, three-column grid included, stayed dead.
+  syncRuntimeSurface();
   startApp();
 }
 
@@ -1109,6 +1165,7 @@ const statusTimer = document.querySelector("#status-timer");
 const statusSync = document.querySelector("#status-sync");
 const roomPlayerStatus = document.querySelector("#room-player-status");
 const helperText = document.querySelector("#helper-text");
+const railHelp = document.querySelector("#rail-help");
 const feedbackElement = document.querySelector("#game-feedback");
 const modeSelectModal = document.querySelector("#mode-select-modal");
 const modeOptionButtons = document.querySelectorAll("[data-game-mode]");
@@ -1665,6 +1722,12 @@ function syncRuntimeSurface() {
   const runtimeKind = state.runtime.kind === "discord" ? "discord" : "web";
   document.body.dataset.runtimeKind = runtimeKind;
   document.body.dataset.roomHubView = state.roomHubView;
+
+  // The help copy stays expanded on a web page and folds into a disclosure inside the Activity,
+  // where the rails should spend their height on the board instead of on prose.
+  if (railHelp && railHelp.open === (runtimeKind === "discord")) {
+    railHelp.open = runtimeKind !== "discord";
+  }
 
   if (roomHubCopy) {
     roomHubCopy.textContent = getRoomHubIntroCopy();
@@ -6665,10 +6728,143 @@ function bootstrap() {
   setControlsDrawerOpen(false);
 }
 
+const RUNTIME_DEBUG_STORAGE_KEY = "discord-sudoku-runtime-debug-v1";
+
+/**
+ * The runtime diagnostic panel is a debugging aid for the Discord host, where the real
+ * `discordSdk.ready()` handshake cannot be reproduced locally. It is opt-in, hidden by default,
+ * read-only (it never mutates `state`, the DOM surface or the SDK), and deliberately reports no
+ * tokens, secrets, session identifiers or user profile data.
+ *
+ * Enable with `?runtime-debug=1` (also accepts `?runtimeDebug=1`); disable with `?runtime-debug=0`.
+ * The flag is remembered in localStorage so it survives the full-page navigation between the
+ * Lobby and VIP Room pages.
+ */
+function isRuntimeDebugEnabled() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("runtime-debug") ?? params.get("runtimeDebug");
+
+  if (raw === "1" || raw === "true") {
+    try {
+      window.localStorage.setItem(RUNTIME_DEBUG_STORAGE_KEY, "1");
+    } catch (error) {
+      /* storage may be unavailable; the panel still works for this page load */
+    }
+    return true;
+  }
+
+  if (raw === "0" || raw === "false") {
+    try {
+      window.localStorage.removeItem(RUNTIME_DEBUG_STORAGE_KEY);
+    } catch (error) {
+      /* ignore */
+    }
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(RUNTIME_DEBUG_STORAGE_KEY) === "1";
+  } catch (error) {
+    return false;
+  }
+}
+
+function readAssetBuildVersion(assetName) {
+  const node = document.querySelector(`link[href*="${assetName}"], script[src*="${assetName}"]`);
+  const url = node?.getAttribute("href") || node?.getAttribute("src") || "";
+  const match = url.match(/[?&]v=([^&]+)/);
+  return match ? decodeURIComponent(match[1]) : "(none)";
+}
+
+function collectRuntimeDiagnostics() {
+  const shell = document.querySelector(".app-shell");
+  const shellStyle = shell ? window.getComputedStyle(shell) : null;
+  const shellBox = shell ? shell.getBoundingClientRect() : null;
+  const sdkLoadStarted = Boolean(window.__DISCORD_SDK_PROMISE__);
+  const handshakeState = discordReadyHandshake
+    ? (state.runtime.kind === "discord" ? "resolved" : "pending or failed")
+    : "not attempted";
+
+  return [
+    ["page entry", `${document.body?.dataset.pageLabel || "(none)"} / player=${document.body?.dataset.playerPage || "(none)"} / ${window.location.pathname}`],
+    ["runtime.kind", state.runtime.kind],
+    ["SDK module load", sdkLoadStarted ? "started" : "skipped (not a Discord-like host)"],
+    ["SDK constructor", typeof window.DiscordSDK === "function" ? "available" : "missing"],
+    ["ready() handshake", handshakeState],
+    ["init failure", state.runtime.lastError || "none"],
+    ["body data-runtime-kind", document.body?.getAttribute("data-runtime-kind") || "(unset)"],
+    ["viewport", `${window.innerWidth} x ${window.innerHeight}`],
+    ["app-shell box", shellBox ? `${Math.round(shellBox.width)} x ${Math.round(shellBox.height)}` : "(not found)"],
+    ["grid-template-areas", shellStyle ? shellStyle.gridTemplateAreas : "(not found)"],
+    ["grid-template-columns", shellStyle ? shellStyle.gridTemplateColumns : "(not found)"],
+    ["active theme", document.body?.dataset.vvipTheme || document.body?.dataset.vipTheme || "(none)"],
+    ["build css / js", `${readAssetBuildVersion("styles.css")} / ${readAssetBuildVersion("app.js")}`],
+  ];
+}
+
+function setupRuntimeDiagnostics() {
+  if (!isRuntimeDebugEnabled() || document.getElementById("runtime-diagnostics")) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.textContent = `
+    #runtime-diagnostics {
+      position: fixed; right: 10px; bottom: 10px; z-index: 2147483000;
+      width: min(340px, calc(100vw - 20px)); max-height: min(62dvh, 460px); overflow: auto;
+      padding: 10px 12px 12px; border-radius: 12px;
+      border: 1px solid rgba(120, 200, 255, 0.35);
+      background: rgba(8, 14, 22, 0.94); color: #dbe9f5;
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    }
+    #runtime-diagnostics h2 {
+      margin: 0 0 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: #8fd0ff; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    #runtime-diagnostics dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; margin: 0; }
+    #runtime-diagnostics dt { color: #8ba6bd; white-space: nowrap; }
+    #runtime-diagnostics dd { margin: 0; word-break: break-word; color: #eaf4ff; }
+    #runtime-diagnostics .rtd-actions { display: flex; gap: 6px; margin-top: 8px; }
+    #runtime-diagnostics button {
+      font: inherit; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+      border: 1px solid rgba(140, 200, 255, 0.4); background: rgba(30, 60, 90, 0.75); color: #eaf4ff;
+    }
+  `;
+  document.head.appendChild(style);
+
+  const panel = document.createElement("aside");
+  panel.id = "runtime-diagnostics";
+  panel.setAttribute("role", "region");
+  panel.setAttribute("aria-label", "Runtime diagnostics");
+  panel.innerHTML = [
+    '<h2><span>Runtime diagnostics</span><button type="button" data-rtd-close aria-label="Close diagnostics">close</button></h2>',
+    '<dl data-rtd-body></dl>',
+    '<div class="rtd-actions"><button type="button" data-rtd-refresh>refresh</button></div>',
+  ].join("");
+  document.body.appendChild(panel);
+
+  const body = panel.querySelector("[data-rtd-body]");
+
+  const render = () => {
+    body.innerHTML = collectRuntimeDiagnostics()
+      .map(([label, value]) => `<dt>${label}</dt><dd>${String(value)}</dd>`)
+      .join("");
+  };
+
+  panel.querySelector("[data-rtd-close]")?.addEventListener("click", () => panel.remove());
+  panel.querySelector("[data-rtd-refresh]")?.addEventListener("click", render);
+  render();
+
+  // Cheap and read-only: the surface can change after a slow handshake or a viewport resize.
+  window.setInterval(render, 2000);
+}
+
 modeOptionButtons.forEach((button) => {
   button.addEventListener("click", handleModeOptionClick);
 });
 
 if (!guardVipEntry()) {
+  setupRuntimeDiagnostics();
   initRuntimeEnvironment();
 }

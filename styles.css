@@ -30,6 +30,10 @@
   --shadow: 0 18px 40px rgba(17, 17, 17, 0.08);
     --button-bg: #ffffff;
     --button-text: var(--text);
+    /* Board digits are painted on `--cell-bg`, which stays a light tile in every theme, so the
+     * numeral colour is split out from `--text`. A room whose chrome is dark glass can then use
+     * light panel text without turning the sudoku itself unreadable. */
+    --cell-text: var(--text);
     --button-border: var(--line);
     --board-bg: #ffffff;
     --cell-bg: #ffffff;
@@ -513,6 +517,11 @@ body[data-runtime-kind="discord"] .app-shell {
   padding-left: 0;
 }
 
+/*
+ * In the three-column shell the header is the top of the left rail, so it gets the same glass
+ * material as the panels below it. Without a surface of its own the title sat straight on the
+ * page background, where the graded overlay left dark rooms with dark-on-dark text.
+ */
 body[data-runtime-kind="discord"] .topbar {
   grid-area: topbar;
   display: grid;
@@ -525,6 +534,14 @@ body[data-runtime-kind="discord"] .topbar {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  padding: 9px 11px;
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  background: var(--panel);
+  background-image: var(--panel-surface);
+  box-shadow: var(--panel-inset);
+  -webkit-backdrop-filter: var(--panel-backdrop);
+  backdrop-filter: var(--panel-backdrop);
 }
 
 /* The Discord host already names the activity, so the eyebrow is dead weight. */
@@ -613,8 +630,41 @@ body[data-runtime-kind="discord"] .status-panel-actions .start-game-button {
   padding: 7px 14px;
 }
 
-body[data-runtime-kind="discord"] .helper-text {
-  display: none;
+/*
+ * The help copy is folded away by default in the Activity rails — the board owns the height. It
+ * stays one tap away instead of being deleted.
+ */
+body[data-runtime-kind="discord"] .rail-help {
+  order: 4;
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 84%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--button-bg) 86%, transparent);
+}
+
+body[data-runtime-kind="discord"] .rail-help > .rail-help-summary {
+  display: block;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--text) 64%, var(--muted) 36%);
+  cursor: pointer;
+}
+
+body[data-runtime-kind="discord"] .rail-help[open] > .rail-help-summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--panel-border) 70%, transparent);
+}
+
+body[data-runtime-kind="discord"] .rail-help .helper-text {
+  width: auto;
+  margin: 6px 9px 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 10.5px;
+  line-height: 1.4;
 }
 
 body[data-runtime-kind="discord"] .game-feedback {
@@ -1002,7 +1052,7 @@ body[data-runtime-kind="discord"] .board {
   border: 1px solid var(--soft-line);
     background: var(--cell-bg);
     background-image: var(--cell-surface);
-  color: var(--text);
+  color: var(--cell-text);
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -1489,14 +1539,28 @@ body[data-vip-theme="hacker"] .note-slot {
   font-size: 13px;
 }
 
+/*
+ * The help copy sits inside a disclosure so the Discord rails can fold it away and give the space
+ * back to the board. On a normal web page the summary is hidden and the disclosure starts open, so
+ * the paragraph renders exactly where it always did.
+ */
+.rail-help {
+  display: block;
+  margin: 0;
+}
+
+.rail-help > .rail-help-summary {
+  display: none;
+}
+
 .helper-text {
   margin: 0;
   width: fit-content;
   max-width: 100%;
   padding: 5px 9px;
   border-radius: 999px;
-  border: 1px solid rgba(20, 20, 20, 0.08);
-  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--panel-border);
+  background: var(--button-bg);
   color: var(--muted);
   font-size: 11px;
   line-height: 1.3;
@@ -1542,11 +1606,13 @@ body[data-vip-theme="hacker"] .note-slot {
   color: #fff;
 }
 
+/* Derived from the active palette: a hard-coded grey digit key stayed a light block in the dark
+ * dream rooms and broke the theme. */
 .keypad-button.completed,
 .keypad-button:disabled {
-  background: #efefef;
-  color: #9b9b9b;
-  border-color: #d4d4d4;
+  background: color-mix(in srgb, var(--button-bg) 74%, var(--muted) 10%);
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  border-color: color-mix(in srgb, var(--button-border) 32%, transparent);
   cursor: not-allowed;
   transform: none;
 }
@@ -1767,13 +1833,16 @@ body.vvip-rooms-open {
   gap: 16px;
 }
 
+/* Room cards use the panel material rather than the cell material, so a dark dream room does not
+ * put light-theme card text on a light board tile. */
 .vvip-room-card {
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--panel-border);
   border-radius: 20px;
-  background: var(--cell-surface);
+  background: var(--panel);
+  background-image: var(--panel-surface);
   box-shadow: var(--button-shadow);
 }
 
@@ -1870,7 +1939,7 @@ body.vvip-rooms-open {
   display: block;
   height: 6px;
   border-radius: 999px;
-  background: rgba(20, 20, 20, 0.1);
+  background: color-mix(in srgb, var(--muted) 26%, transparent);
   overflow: hidden;
 }
 
