@@ -77,6 +77,25 @@ body[data-vip-theme="vvip-moonlight"] {
     linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(232, 245, 253, 0.9)),
     radial-gradient(circle at bottom right, rgba(198, 226, 246, 0.3), transparent 46%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  /* Nebula-glass board. Two ice-blue panes alternate like glazing, ringed by a cool moonlight
+   * halo. Every value is a tint over the room rather than an opaque plate, and the fixed, player
+   * and candidate inks are three separate shades so a mark can never disappear into the tile. */
+  --board-surface:
+    linear-gradient(180deg, rgba(245, 250, 255, 0.92), rgba(233, 244, 253, 0.92)),
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.6), transparent 62%);
+  --board-surface-alt:
+    linear-gradient(180deg, rgba(232, 243, 252, 0.92), rgba(221, 236, 250, 0.92)),
+    radial-gradient(circle at 72% 82%, rgba(255, 255, 255, 0.5), transparent 62%);
+  --board-grid: rgba(150, 186, 212, 0.9);
+  --board-subgrid: #6d9cbe;
+  --board-glow: 0 0 34px rgba(176, 220, 255, 0.5);
+  --cell-text-fixed: #16324a;
+  --cell-text-user: #1f4f78;
+  --cell-text-note: #4a6275;
+  --cell-selected: rgba(206, 234, 255, 0.92);
+  --cell-related: rgba(224, 241, 253, 0.72);
+  --cell-correct-accent: rgba(255, 210, 92, 0.28);
+  --cell-error-accent: rgba(196, 74, 74, 0.5);
   --button-surface: linear-gradient(180deg, rgba(250, 254, 255, 0.4), rgba(200, 228, 246, 0.22));
   --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46), 0 4px 10px rgba(6, 28, 46, 0.14);
   --modal-surface: linear-gradient(180deg, rgba(241, 250, 255, 0.9), rgba(198, 226, 246, 0.86));
@@ -149,6 +168,25 @@ body[data-vip-theme="vvip-observatory"] {
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 238, 255, 0.92)),
     radial-gradient(circle at bottom right, rgba(206, 192, 255, 0.32), transparent 48%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  /* Nebula-glass board, champagne ring around pale violet panes. This room's chrome is dark, so
+   * the board deliberately is not: the tiles stay near white and every digit is inked deep, which
+   * is the fix for the earlier round where the fixed digits were too pale to read. */
+  --board-surface:
+    linear-gradient(180deg, rgba(248, 246, 255, 0.93), rgba(240, 236, 252, 0.93)),
+    radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.6), transparent 62%);
+  --board-surface-alt:
+    linear-gradient(180deg, rgba(236, 231, 250, 0.93), rgba(227, 221, 246, 0.93)),
+    radial-gradient(circle at 70% 82%, rgba(255, 255, 255, 0.5), transparent 62%);
+  --board-grid: rgba(146, 134, 192, 0.85);
+  --board-subgrid: #6b5fa8;
+  --board-glow: 0 0 30px rgba(211, 176, 99, 0.4), 0 0 46px rgba(150, 120, 220, 0.28);
+  --cell-text-fixed: #2b2160;
+  --cell-text-user: #5b3fb0;
+  --cell-text-note: #574d86;
+  --cell-selected: rgba(234, 219, 178, 0.9);
+  --cell-related: rgba(232, 228, 248, 0.72);
+  --cell-correct-accent: rgba(211, 176, 99, 0.5);
+  --cell-error-accent: rgba(214, 96, 120, 0.55);
   --button-surface: linear-gradient(180deg, rgba(112, 88, 176, 0.26), rgba(52, 34, 98, 0.18));
   --button-shadow: inset 0 1px 0 rgba(214, 196, 255, 0.2), 0 4px 12px rgba(3, 1, 18, 0.28);
   --modal-surface: linear-gradient(180deg, rgba(46, 32, 84, 0.94), rgba(26, 16, 54, 0.92));
@@ -221,6 +259,25 @@ body[data-vip-theme="vvip-sakura"] {
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 244, 246, 0.92)),
     radial-gradient(circle at bottom right, rgba(255, 222, 228, 0.34), transparent 48%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  /* Nebula-glass board, warm cream panes under a whisper of sakura and gold. The pink stays a
+   * tint so the grid reads as calm paper rather than candy, and the notes keep a neutral grey rose
+   * instead of a second pink so they do not blur into the tile wash. */
+  --board-surface:
+    linear-gradient(180deg, rgba(255, 251, 249, 0.94), rgba(253, 245, 246, 0.94)),
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.62), transparent 62%);
+  --board-surface-alt:
+    linear-gradient(180deg, rgba(252, 241, 244, 0.94), rgba(250, 235, 239, 0.94)),
+    radial-gradient(circle at 72% 82%, rgba(255, 255, 255, 0.52), transparent 62%);
+  --board-grid: rgba(198, 170, 184, 0.85);
+  --board-subgrid: #a8809b;
+  --board-glow: 0 0 28px rgba(255, 214, 200, 0.45), 0 0 40px rgba(201, 162, 74, 0.22);
+  --cell-text-fixed: #452a37;
+  --cell-text-user: #8c4a6b;
+  --cell-text-note: #736069;
+  --cell-selected: rgba(255, 224, 234, 0.92);
+  --cell-related: rgba(255, 240, 240, 0.72);
+  --cell-correct-accent: rgba(201, 162, 74, 0.45);
+  --cell-error-accent: rgba(196, 74, 92, 0.5);
   --button-surface: linear-gradient(180deg, rgba(255, 253, 251, 0.42), rgba(253, 234, 234, 0.26));
   --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 4px 10px rgba(70, 24, 44, 0.12);
   --modal-surface: linear-gradient(180deg, rgba(255, 252, 249, 0.93), rgba(255, 240, 240, 0.9));
@@ -248,7 +305,8 @@ body[data-vip-theme="vvip-sakura"] {
  *   A. info containers keep a whisper of glass instead of a card,
  *   B. the board loses its outer plate but keeps the themed frame and its own opaque tiles,
  *   C. the digit rail drops its plate and its keys become thin translucent chips.
- * Cell surfaces, fixed/filled/error/selected states and the Notes grid are intentionally untouched.
+ * The board's own colours (tile wash, grid lines, digit ink, selection) are themed purely through
+ * the `--board-*` and `--cell-*` variables above, so the shared rules below never restate them.
  * ---------------------------------------------------------------- */
 
 /* A. Info containers: the panel geometry stays (hit area, radius, focus ring), the slab does not. */

@@ -56,6 +56,11 @@
     --board-inner-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
     --cell-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 245, 245, 0.96));
     --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    /* The dream rooms alternate every other tile with `--board-surface-alt`, ring the frame with
+     * `--board-glow`, and ink their notes from `--cell-text-note`. All three are deliberately left
+     * unset here: the alternation, the ring and the note ink fall back to the plain tile, a
+     * transparent shadow and the older `--note-hint` hook, so the web themes and the free VIP skins
+     * keep one uniform board. */
     --button-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 243, 243, 0.98));
     --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 2px 8px rgba(17, 17, 17, 0.06);
     --modal-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 248, 248, 0.98));
@@ -487,7 +492,7 @@ body[data-controls-open="true"] .control-drawer-toggle {
   border: 3px solid var(--line);
     background: var(--board-bg);
     background-image: var(--board-frame);
-    box-shadow: var(--board-frame-shadow), var(--board-inner-shadow);
+    box-shadow: var(--board-frame-shadow), var(--board-inner-shadow), var(--board-glow, 0 0 0 rgba(0, 0, 0, 0));
     padding: 4px;
     gap: 0;
     -webkit-backdrop-filter: var(--board-backdrop);
@@ -1156,10 +1161,13 @@ body[data-runtime-kind="discord"] .board {
 
 .cell {
   appearance: none;
-  border: 1px solid var(--soft-line);
+  /* The dream rooms repaint the grid with `--board-grid` / `--board-subgrid` and ink the digits
+   * with `--cell-text-user`. None of those are declared in `:root`, so every other theme and every
+   * free VIP skin simply falls back to the original line colours and digit ink. */
+  border: 1px solid var(--board-grid, var(--soft-line));
     background: var(--cell-bg);
-    background-image: var(--cell-surface);
-  color: var(--cell-text);
+    background-image: var(--board-surface, var(--cell-surface));
+  color: var(--cell-text-user, var(--cell-text));
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -1172,9 +1180,24 @@ body[data-runtime-kind="discord"] .board {
     box-shadow: var(--cell-shadow);
 }
 
+/* Dream rooms tint every other tile with `--board-surface-alt`, which no other theme sets, so the
+ * board keeps one uniform tile everywhere else. The 18n period spans two rows, which lets the
+ * offset shift by one column per row — a checkerboard rather than stripes. */
+.cell:nth-child(18n + 2),
+.cell:nth-child(18n + 4),
+.cell:nth-child(18n + 6),
+.cell:nth-child(18n + 8),
+.cell:nth-child(18n + 10),
+.cell:nth-child(18n + 12),
+.cell:nth-child(18n + 14),
+.cell:nth-child(18n + 16),
+.cell:nth-child(18n + 18) {
+  background-image: var(--board-surface-alt, var(--cell-surface));
+}
+
 .cell:nth-child(3n) {
   border-right-width: 3px;
-  border-right-color: var(--line);
+  border-right-color: var(--board-subgrid, var(--line));
 }
 
 .cell:nth-child(9n) {
@@ -1184,28 +1207,31 @@ body[data-runtime-kind="discord"] .board {
 .cell[data-row="2"],
 .cell[data-row="5"] {
   border-bottom-width: 3px;
-  border-bottom-color: var(--line);
+  border-bottom-color: var(--board-subgrid, var(--line));
 }
 
 .cell.given {
-  color: var(--given);
+  color: var(--cell-text-fixed, var(--given));
 }
 
 .cell.selected {
-  background: var(--selected);
+  background: var(--cell-selected, var(--selected));
 }
 
 .cell.related {
-  background: var(--related);
+  background: var(--cell-related, var(--related));
 }
 
 .cell.matched-digit-cell {
   background: var(--matched-digit);
-  box-shadow: inset 0 0 0 2px rgba(255, 210, 92, 0.24);
+  box-shadow: inset 0 0 0 2px var(--cell-correct-accent, rgba(255, 210, 92, 0.24));
 }
 
 .cell.conflict {
   background: var(--conflict);
+  /* The error ring is themed per room; the fallback is transparent, so every other theme keeps
+   * exactly the tile shadow it had before. */
+  box-shadow: inset 0 0 0 2px var(--cell-error-accent, transparent), var(--cell-shadow);
 }
 
 .cell.wrong-claim {
@@ -1301,7 +1327,7 @@ body[data-runtime-kind="discord"] .board {
 
 .cell-value.matched-digit.given,
 .cell-duel-value.matched-digit.given {
-  color: var(--given);
+  color: var(--cell-text-fixed, var(--given));
 }
 
 .cell-duel-values {
@@ -1540,7 +1566,7 @@ body[data-runtime-kind="discord"] .board {
 .note {
   font-size: inherit;
   line-height: 1;
-  color: var(--note-hint, #5a5a5a);
+  color: var(--cell-text-note, var(--note-hint, #5a5a5a));
   min-width: 0;
 }
 
@@ -1554,7 +1580,7 @@ body[data-runtime-kind="discord"] .board {
   background: none !important;
   padding: 0;
   font: inherit;
-  color: var(--note-hint, #5a5a5a);
+  color: var(--cell-text-note, var(--note-hint, #5a5a5a));
   opacity: 1;
   cursor: pointer;
   border-radius: 0;
@@ -1572,7 +1598,10 @@ body[data-runtime-kind="discord"] .board {
 }
 
 .note-slot.filled {
-  color: var(--text);
+  /* A filled candidate is a real mark, so it takes the tile's own digit ink. In the dream rooms
+   * `--text` is the rail colour and can be near-white, which used to make the marked digits vanish
+   * into a light tile. */
+  color: var(--cell-text-note, var(--cell-text));
   opacity: 1;
   font-weight: 700;
   background: none !important;
