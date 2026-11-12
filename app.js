@@ -1,6 +1,10 @@
 const DISCORD_CLIENT_ID = "1541798952150499349";
 const DISCORD_READY_TIMEOUT_MS = 8000;
 const DISCORD_AUTH_STORAGE_KEY = "discord-sudoku-discord-auth-v1";
+// Marks the browsing context of one Discord Activity launch. It lives in sessionStorage because that
+// store survives every in-app page jump and dies with the Activity, which is exactly the difference
+// between "the player moved from the Lobby to the VIP Room" and "the player reopened the Activity".
+const ACTIVITY_SESSION_STORAGE_KEY = "discord-sudoku-activity-session-v1";
 const ROOM_LINK_PARAM = "roomId";
 const ROOM_CLIENT_ID_KEY = "discord-sudoku-room-client-id-v1";
 const ROOM_JOINED_AT_KEY = "discord-sudoku-room-joined-at-v1";
@@ -161,12 +165,109 @@ function promoteSurfaceWhenDiscordHandshakeLands() {
       applyDiscordRuntimeDetails();
       syncRuntimeSurface();
 
+      // The late handshake means the launch decision already ran against the web surface, so the
+      // finished board has to be reset here instead of before `startApp()`: a board that has already
+      // been rendered cannot be retracted by cleaning storage. A live multiplayer room is left alone.
+      if (beginDiscordActivitySession() && appBootstrapped && !isRoomMultiplayerMode() && getCurrentSession()?.hasWon) {
+        resetRoomStateForModeSelection();
+        return;
+      }
+
       if (appBootstrapped) {
         renderRoomHub();
       }
     },
     () => {},
   );
+}
+
+/**
+ * A finished solo / ranked board is display state that belongs to the round that just ended, but it
+ * is persisted and restored on every load, so a player who closed the Activity and reopened it used
+ * to walk straight back into a board they had already cleared.
+ *
+ * Discord gives every Activity launch its own browsing context, while Lobby -> VIP Room -> VVIP is a
+ * navigation *inside* that context. sessionStorage survives the in-app jumps and disappears with the
+ * context, so the marker below tells the two apart without reading the URL and without listening to
+ * `beforeunload` / `visibilitychange`, which also fire on internal navigation and window switching.
+ * The marker is only ever written from a resolved `ready()` handshake, so a plain web visit can
+ * never clear a board this way.
+ *
+ * Only completed session entries are dropped. The ranked leaderboard and its history live on the
+ * server, and the saved name, the VVIP growth credits, the unlocked themes and the rest of the
+ * settings live under other keys, so none of them is touched. An unfinished round keeps its resume,
+ * and multiplayer payloads are left alone entirely so a room that is still alive keeps following its
+ * own reconnection rules.
+ */
+function readActivitySessionMarker() {
+  return readSessionValue(ACTIVITY_SESSION_STORAGE_KEY) === "1";
+}
+
+function discardCompletedSoloBoards() {
+  [SOLO_STORAGE_KEY, SOLO_RANKED_STORAGE_KEY].forEach((storageKey) => {
+    const raw = readPersistedStateByKey(storageKey);
+
+    if (!raw) {
+      return;
+    }
+
+    let payload = null;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch (error) {
+      return;
+    }
+
+    if (!payload || typeof payload !== "object" || !payload.sessions) {
+      return;
+    }
+
+    let discarded = false;
+
+    Object.keys(payload.sessions).forEach((sessionKey) => {
+      if (payload.sessions[sessionKey]?.hasWon !== true) {
+        return;
+      }
+
+      delete payload.sessions[sessionKey];
+      discarded = true;
+
+      if (payload.gameStart?.startedSessionKey === sessionKey) {
+        payload.gameStart = { readyBy: { A: null, B: null }, startedSessionKey: null };
+      }
+    });
+
+    if (!discarded) {
+      return;
+    }
+
+    const serialized = JSON.stringify(payload);
+    persistedStorageFallback[storageKey] = serialized;
+
+    try {
+      window.localStorage.setItem(storageKey, serialized);
+    } catch (error) {
+      // The in-memory fallback is enough: the next load still starts from the initial lobby.
+    }
+  });
+}
+
+/**
+ * Marks the first page of a Discord Activity session. Returns true exactly once per Activity launch
+ * — on every later page of the same session the marker is already there. Only ever called once
+ * `runtime.kind` is "discord", so it can never act on a plain web visit.
+ */
+function beginDiscordActivitySession() {
+  if (readActivitySessionMarker()) {
+    state.runtime.activitySession = "continuing";
+    return false;
+  }
+
+  writeSessionValue(ACTIVITY_SESSION_STORAGE_KEY, "1");
+  state.runtime.activitySession = "new";
+  discardCompletedSoloBoards();
+  return true;
 }
 
 async function initRuntimeEnvironment() {
@@ -202,6 +303,10 @@ async function initRuntimeEnvironment() {
     // `ready()` resolved inside the race above — only now may the runtime claim Discord.
     state.runtime.kind = "discord";
     applyDiscordRuntimeDetails();
+    // A new Activity launch must start from the initial lobby, so a board finished in the previous
+    // launch is dropped before the launch decision runs. An in-app page jump lands on the very same
+    // Activity session and therefore keeps the marker, so nothing is dropped there.
+    beginDiscordActivitySession();
 
     if (discordSdk.commands?.getChannel && discordSdk.channelId) {
       try {
@@ -234,6 +339,9 @@ async function initRuntimeEnvironment() {
   // runs `bootstrap()`, so the runtime surface used to stay unwritten and `body` carried no
   // `data-runtime-kind` at all — every Discord-only rule, three-column grid included, stayed dead.
   syncRuntimeSurface();
+  // Same reason for the nav chips: the mode-picker Lobby has no `bootstrap()`, so this is the only
+  // place that can keep the Activity's frame query on the anchors of the first page.
+  applyDiscordHostParamsToNavLinks();
   startApp();
 }
 
@@ -446,6 +554,7 @@ const state = {
     instanceId: null,
     auth: getDefaultDiscordAuthState(),
     lastError: "",
+    activitySession: "pending",
   },
   vipTheme: DEFAULT_VIP_THEME,
   gameStart: {
@@ -2662,6 +2771,65 @@ function updateSyncStatus(label) {
   renderRoomHub();
 }
 
+// Every query parameter the vendored SDK parses back out of `location.search` as its frame context,
+// in the order the SDK reads them. `frame_id`, `instance_id` and `platform` are mandatory — the
+// constructor throws on each one that is missing — and the rest are the optional context the SDK
+// keeps for the launch (`channel_id` is what `applyDiscordRuntimeDetails()` turns into the channel
+// name). Discord stamps all of them on the Activity iframe, so they describe one Activity session
+// and have to stay identical on every page of it.
+const DISCORD_HOST_QUERY_PARAMS = [
+  "frame_id",
+  "instance_id",
+  "platform",
+  "custom_id",
+  "referrer_id",
+  "guild_id",
+  "channel_id",
+  "location_id",
+];
+
+/**
+ * Discord stamps the Activity frame's URL with those parameters, and the vendored SDK reads them
+ * straight back out of `location.search` to build its handshake. The nav chips are plain relative
+ * links, so every full-page jump between the Lobby, the VIP Room and the VVIP rooms used to drop
+ * them; the next `new DiscordSDK()` then threw, the runtime fell back to "web", and the
+ * three-column Activity layout was replaced by the web one for the rest of the session.
+ *
+ * Only parameters that are already on the current page are carried over, and only while the page is
+ * already running in a Discord frame, so a plain web visit can never be turned into a Discord one.
+ */
+function carryDiscordHostParams(targetUrl) {
+  if (!isLikelyDiscordFrame()) {
+    return targetUrl;
+  }
+
+  const currentParams = new URLSearchParams(window.location.search);
+
+  DISCORD_HOST_QUERY_PARAMS.forEach((name) => {
+    const value = currentParams.get(name);
+
+    if (value !== null && !targetUrl.searchParams.has(name)) {
+      targetUrl.searchParams.set(name, value);
+    }
+  });
+
+  return targetUrl;
+}
+
+/**
+ * The nav chips are plain anchors, and the very first Lobby of an Activity session shows the mode
+ * picker, which never runs `bootstrap()` and therefore never runs `syncPageLinksWithRoom()`. Writing
+ * the host parameters into the anchors as soon as the runtime is resolved keeps the Discord frame
+ * query on every chip whichever page the player is on. The check itself stays inside
+ * `carryDiscordHostParams`, so a plain web page is still left untouched.
+ */
+function applyDiscordHostParamsToNavLinks() {
+  pageLinkButtons.forEach((link) => {
+    const targetUrl = carryDiscordHostParams(new URL(link.getAttribute("href"), window.location.href));
+    link.setAttribute("href", `${targetUrl.pathname.split("/").pop()}${targetUrl.search}${targetUrl.hash}`);
+  });
+}
+
 function syncPageLinksWithRoom() {
   const useManualParams = (
     state.roomType === "manual"
@@ -2695,6 +2863,7 @@ function syncPageLinksWithRoom() {
       targetUrl.searchParams.delete("password");
     }
 
+    carryDiscordHostParams(targetUrl);
     link.setAttribute("href", `${targetUrl.pathname.split("/").pop()}${targetUrl.search}${targetUrl.hash}`);
   });
 }
@@ -6858,6 +7027,7 @@ function collectRuntimeDiagnostics() {
   return [
     ["page entry", `${document.body?.dataset.pageLabel || "(none)"} / player=${document.body?.dataset.playerPage || "(none)"} / ${window.location.pathname}`],
     ["runtime.kind", state.runtime.kind],
+    ["activity session", state.runtime.activitySession],
     ["SDK module load", signals.sdkLoaderStarted ? "started" : "skipped (no Discord host signal)"],
     ["SDK constructor", typeof window.DiscordSDK === "function" ? "available" : "missing"],
     ["ready() handshake", handshakeState],

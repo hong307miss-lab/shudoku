@@ -11,6 +11,7 @@ const appSource = readFile("app.js");
 const stylesSource = readFile("styles.css");
 const vvipThemeCss = readFile("vvip/vvip-theme.css");
 const loaderSource = readFile("vendor/discord-runtime-loader.js");
+const vendorSdkSource = readFile("vendor/discord-embedded-app-sdk.mjs");
 const playerPage = readFile("player-b.html");
 const indexPage = readFile("index.html");
 const lobbyPage = readFile("lobby-b.html");
@@ -799,4 +800,136 @@ test("the diagnostics entry is read-only, reports the required fields and never 
   // No tokens, secrets or profile data.
   assert.doesNotMatch(diagnosticsSource, /token|secret|authorization/i);
   assert.doesNotMatch(diagnosticsSource, /global_name|avatar|discriminator|email/i);
+});
+
+/* ----------------------------------------------------------------- *
+ * 9. Keeping the Activity layout across pages, and starting a new
+ *    Activity session from the initial lobby
+ * ----------------------------------------------------------------- */
+
+test("the in-app nav links carry the Discord frame query so the next page can still handshake", () => {
+  const linkSyncSource = extractFunctionSource("syncPageLinksWithRoom");
+  const carrySource = extractFunctionSource("carryDiscordHostParams");
+
+  // The nav chips are the only full-page jump between Lobby / VIP Room / VVIP Rooms, and the href
+  // they publish has to keep `frame_id` — the vendored SDK reads it back out of location.search and
+  // throws without it, which is what used to drop every later page onto the web layout.
+  assert.match(linkSyncSource, /carryDiscordHostParams\(targetUrl\)/);
+
+  // Only parameters already on the current page are copied, and only from inside a Discord frame.
+  assert.match(carrySource, /isLikelyDiscordFrame\(\)/);
+  assert.match(carrySource, /new URLSearchParams\(window\.location\.search\)/);
+  assert.ok(
+    carrySource.indexOf("isLikelyDiscordFrame()") < carrySource.indexOf("URLSearchParams"),
+    "the Discord check must gate the copy, not follow it",
+  );
+  assert.doesNotMatch(carrySource, /localStorage|sessionStorage/);
+  assert.doesNotMatch(carrySource, /userAgent|innerWidth|innerHeight/);
+
+  // The carried list has to cover every parameter the vendored SDK throws on. It is not just
+  // `frame_id` / `instance_id`: `platform` is mandatory too, and a real Discord iframe carries all
+  // three, so a jump that dropped `platform` would fail the SDK exactly like a dropped `frame_id`.
+  const hostParams = /const DISCORD_HOST_QUERY_PARAMS = \[([^\]]*)\]/.exec(appSource);
+  assert.ok(hostParams, "DISCORD_HOST_QUERY_PARAMS must still be declared");
+  const requiredParams = Array.from(
+    vendorSdkSource.matchAll(/"([a-z_]+) query param is not defined"/g),
+    (match) => match[1],
+  );
+  assert.deepEqual(
+    [...requiredParams].sort(),
+    ["frame_id", "instance_id", "platform"],
+    "the vendored SDK's mandatory frame parameters changed; the carry list must be revisited",
+  );
+  requiredParams.forEach((name) => {
+    assert.ok(
+      hostParams[1].includes(`"${name}"`),
+      `DISCORD_HOST_QUERY_PARAMS must carry every mandatory SDK parameter (missing ${name})`,
+    );
+  });
+  // `channel_id` is optional to the SDK but becomes the channel name in the status rail, so it has
+  // to survive an in-app jump as well.
+  assert.ok(hostParams[1].includes('"channel_id"'), "DISCORD_HOST_QUERY_PARAMS must carry channel_id");
+
+  // The first Lobby of a session only shows the mode picker, so `bootstrap()` — and with it the
+  // room-aware rewrite above — never runs there. The chips still have to be stamped at boot, and
+  // they inherit the same gate because the stamping goes through `carryDiscordHostParams`.
+  const bootStampSource = extractFunctionSource("applyDiscordHostParamsToNavLinks");
+  assert.match(bootStampSource, /carryDiscordHostParams\(/);
+  assert.doesNotMatch(bootStampSource, /localStorage|sessionStorage|isLikelyDiscordFrame/);
+  assert.doesNotMatch(bootStampSource, /state\.runtime\.kind/);
+});
+
+test("no page hard-codes a Discord frame id, so the host context can only come from the live frame", () => {
+  [indexPage, lobbyPage, playerPage].forEach((page) => {
+    assert.doesNotMatch(page, /frame_id=|instance_id=/);
+  });
+});
+
+test("a new Discord Activity session drops the finished solo board and nothing else", () => {
+  const discardSource = extractFunctionSource("discardCompletedSoloBoards");
+  const beginSource = extractFunctionSource("beginDiscordActivitySession");
+
+  assert.match(discardSource, /\[SOLO_STORAGE_KEY, SOLO_RANKED_STORAGE_KEY\]/);
+  assert.match(discardSource, /hasWon !== true/);
+
+  // A round that is still being played keeps its resume, and so does every other stored key: the
+  // ranked name, the theme rights, the auth session and the multiplayer room payloads.
+  assert.doesNotMatch(discardSource, /isPaused|hasProgress/);
+  ["VIP_THEME_STORAGE_KEY", "RANKED_PLAYER_NAME_STORAGE_KEY", "DISCORD_AUTH_STORAGE_KEY", "STORAGE_KEY:"].forEach((key) => {
+    assert.ok(!discardSource.includes(key), `discardCompletedSoloBoards must not touch ${key}`);
+  });
+
+  // No lifecycle shortcut: a page jump or a hidden window must never clear a board.
+  assert.doesNotMatch(discardSource, /beforeunload|visibilitychange|pagehide|\.clear\(\)/);
+  assert.doesNotMatch(beginSource, /beforeunload|visibilitychange|pagehide|\.clear\(\)/);
+
+  // The marker lives in sessionStorage, which survives every in-app jump and dies with the Activity.
+  assert.match(extractFunctionSource("readActivitySessionMarker"), /readSessionValue\(ACTIVITY_SESSION_STORAGE_KEY\)/);
+  assert.match(beginSource, /writeSessionValue\(ACTIVITY_SESSION_STORAGE_KEY, "1"\)/);
+  assert.match(beginSource, /discardCompletedSoloBoards\(\)/);
+  assert.doesNotMatch(appSource, /localStorage\.setItem\(ACTIVITY_SESSION_STORAGE_KEY/);
+});
+
+test("no script wipes a whole storage area", () => {
+  assert.doesNotMatch(appSource, /localStorage\.clear\(|sessionStorage\.clear\(/);
+});
+
+test("the Activity session is opened after ready() and before the launch decision runs", () => {
+  const initSource = extractFunctionSource("initRuntimeEnvironment");
+  const readyIndex = initSource.indexOf("discordSdk.ready()");
+  const kindIndex = initSource.indexOf('state.runtime.kind = "discord"');
+  const sessionIndex = initSource.indexOf("beginDiscordActivitySession()");
+  // `startApp()` also runs on the web-fallback branch early in the function; the launch decision
+  // that matters here is the shared tail call, so anchor on the last occurrence.
+  const startAppIndex = initSource.lastIndexOf("startApp()");
+
+  assert.ok(readyIndex >= 0, "ready() must still be awaited");
+  assert.ok(kindIndex > readyIndex, "the runtime must still claim Discord only after ready()");
+  assert.ok(sessionIndex > kindIndex, "the session marker may only be written from a resolved handshake");
+  assert.ok(startAppIndex > sessionIndex, "the finished board must be dropped before the launch decision");
+});
+
+test("a handshake that lands after the timeout resets a finished board instead of leaving it up", () => {
+  const promoteSource = extractFunctionSource("promoteSurfaceWhenDiscordHandshakeLands");
+
+  assert.match(promoteSource, /beginDiscordActivitySession\(\)/);
+  assert.match(promoteSource, /resetRoomStateForModeSelection\(\)/);
+  // A live multiplayer room keeps its own snapshot and reconnection rules.
+  assert.match(promoteSource, /!isRoomMultiplayerMode\(\)/);
+
+  // Exactly one definition and the two call sites that rewrite the nav chips — no listener may open
+  // a session.
+  assert.equal((appSource.match(/beginDiscordActivitySession\(\)/g) || []).length, 3);
+  assert.equal((appSource.match(/carryDiscordHostParams\(/g) || []).length, 3);
+  // The boot path must rewrite the chips even when the mode picker means `bootstrap()` never runs.
+  const initSource = extractFunctionSource("initRuntimeEnvironment");
+  assert.ok(
+    initSource.indexOf("applyDiscordHostParamsToNavLinks()") > initSource.indexOf("syncRuntimeSurface()"),
+    "the nav chips must be stamped after the runtime surface is written",
+  );
+});
+
+test("the diagnostics report which Activity session the page belongs to", () => {
+  assert.match(extractFunctionSource("collectRuntimeDiagnostics"), /\["activity session", state\.runtime\.activitySession\]/);
+  assert.match(appSource, /activitySession: "pending"/);
 });
