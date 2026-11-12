@@ -920,16 +920,21 @@ body[data-runtime-kind="discord"] .board {
 }
 
 /*
- * Discord desktop (wide + tall enough for three columns):
+ * Discord landscape — three columns whenever the viewport is wide enough:
  *   left rail (header / status / controls) | board | right rail (keypad)
  * The board spans every row so it owns the full viewport height, and the rails
  * scroll internally instead of pushing the board around.
+ *
+ * The gate is width only, on purpose. Host identity (`data-runtime-kind`) and available space are
+ * two separate questions, and a short Activity panel is not a reason to collapse into the long
+ * vertical web page: the board is sized from whichever axis is scarcer, so the three-column
+ * contract survives at any height.
  */
-@media (min-width: 880px) and (min-height: 560px) {
+@media (min-width: 880px) {
   body[data-runtime-kind="discord"] {
     --discord-board-width: min(
-      calc(100dvh - 56px),
-      calc(100vw - var(--discord-side-left) - var(--discord-side-right) - 64px)
+      calc(100dvh - 48px),
+      calc(100vw - var(--discord-side-left) - var(--discord-side-right) - 56px)
     );
   }
 
@@ -937,13 +942,24 @@ body[data-runtime-kind="discord"] .board {
     height: calc(100dvh - 20px);
     min-height: 0;
     grid-template-columns: var(--discord-side-left) max-content var(--discord-side-right);
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr);
     grid-template-areas:
       "topbar board keypad"
       "status board keypad"
       "controls board keypad";
     justify-content: center;
     align-items: start;
+  }
+
+  /* Each rail owns its own box so a crowded rail scrolls instead of stretching the shell. */
+  body[data-runtime-kind="discord"] .topbar,
+  body[data-runtime-kind="discord"] .status-panel,
+  body[data-runtime-kind="discord"] .controls-panel {
+    align-self: stretch;
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   body[data-runtime-kind="discord"] .topbar {
@@ -1023,8 +1039,78 @@ body[data-runtime-kind="discord"] .board {
   }
 }
 
-/* Discord narrow or short: fall back to a single stacked, page-scrolling column. */
-@media (max-width: 879px), (max-height: 559px) {
+/*
+ * Short landscape Activity panel (wide, under 560px tall). The three columns stay; only the rails
+ * are tightened, and the rows switch to fractions so a crowded rail scrolls inside the viewport
+ * instead of overflowing the page.
+ */
+@media (min-width: 880px) and (max-height: 559px) {
+  body[data-runtime-kind="discord"] {
+    --discord-layout-gap: 6px;
+    padding: 6px 8px 8px;
+  }
+
+  body[data-runtime-kind="discord"] .app-shell {
+    height: calc(100dvh - 14px);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.9fr);
+  }
+
+  body[data-runtime-kind="discord"] .topbar {
+    padding: 6px 9px;
+    border-radius: 14px;
+  }
+
+  body[data-runtime-kind="discord"] .topbar h1 {
+    font-size: clamp(16px, 1.8vw, 20px);
+  }
+
+  body[data-runtime-kind="discord"] .topbar .page-link-button {
+    padding: 5px 9px;
+    font-size: 11px;
+  }
+
+  body[data-runtime-kind="discord"] .status-panel {
+    padding: 6px 9px;
+  }
+
+  body[data-runtime-kind="discord"] .status-strip > div {
+    min-height: 22px;
+    padding: 2px 7px;
+  }
+
+  body[data-runtime-kind="discord"] .controls-panel,
+  body[data-runtime-kind="discord"] .keypad-panel,
+  body[data-runtime-kind="discord"] .board-panel {
+    padding: 8px;
+  }
+
+  body[data-runtime-kind="discord"] .controls-panel,
+  body[data-runtime-kind="discord"] .keypad-panel {
+    gap: 8px;
+  }
+
+  body[data-runtime-kind="discord"] .control-group + .control-group {
+    margin-top: 7px;
+  }
+
+  body[data-runtime-kind="discord"] .keypad-button {
+    min-height: clamp(34px, 5.6vh, 46px);
+    border-radius: 12px;
+  }
+
+  body[data-runtime-kind="discord"] .chip-button {
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  body[data-runtime-kind="discord"] .rail-help {
+    margin-top: 5px;
+  }
+}
+
+/* Discord narrow (portrait phone / slim panel): single stacked, page-scrolling column. */
+@media (max-width: 879px) {
   body[data-runtime-kind="discord"] {
     --discord-board-width: min(calc(100dvh - 140px), calc(100vw - 24px), 86dvh);
   }

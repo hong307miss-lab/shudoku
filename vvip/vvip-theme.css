@@ -32,12 +32,13 @@ body[data-vvip-theme] {
 
 body[data-vip-theme="vvip-moonlight"] {
   --bg: #0a1a28;
-  /* Ice-blue glass: the greenhouse stays visible through the panels instead of being covered by
-   * near-white cards. `--text` stays dark because the master artwork is a bright, cool scene. */
-  --panel: rgba(198, 228, 248, 0.4);
+  /* Ice-blue glass. The greenhouse is the subject, so the rails are a thin breath of frost rather
+   * than cards that cover it. `--text` stays dark because the master artwork is a bright cool
+   * scene, and alpha stays high enough on its own to keep the copy legible without a plate. */
+  --panel: rgba(206, 232, 250, 0.26);
   --line: #2d5170;
   --soft-line: #93b2c9;
-  --text: #0a1c2a;
+  --text: #08202f;
   --muted: #2c4c65;
   --given: #5c7d95;
   --player-a: #10497a;
@@ -48,36 +49,36 @@ body[data-vip-theme="vvip-moonlight"] {
   --matched-digit: rgba(178, 220, 248, 0.92);
   --matched-digit-text: #123c58;
   --cell-text: #0a1c2a;
-  --shadow: 0 22px 46px rgba(4, 18, 32, 0.38);
-  --button-bg: rgba(216, 238, 252, 0.42);
+  --shadow: 0 14px 30px rgba(4, 18, 32, 0.24);
+  --button-bg: rgba(224, 242, 254, 0.26);
   --button-border: #5b8db2;
-  --board-bg: rgba(160, 200, 230, 0.26);
-  --cell-bg: rgba(238, 249, 255, 0.92);
-  --feedback-surface: rgba(184, 220, 244, 0.38);
+  --board-bg: transparent;
+  --cell-bg: rgba(240, 250, 255, 0.94);
+  --feedback-surface: rgba(184, 220, 244, 0.26);
   --page-overlay:
     radial-gradient(circle at 50% 12%, rgba(214, 236, 255, 0.18), transparent 28%),
-    linear-gradient(180deg, rgba(6, 18, 32, 0.34), rgba(3, 10, 20, 0.6));
+    linear-gradient(180deg, rgba(6, 18, 32, 0.3), rgba(3, 10, 20, 0.55));
   --page-ambient:
     radial-gradient(circle at 14% 78%, rgba(150, 205, 240, 0.18), transparent 24%),
     radial-gradient(circle at 86% 22%, rgba(198, 224, 255, 0.14), transparent 22%);
-  --panel-border: rgba(170, 212, 240, 0.42);
+  --panel-border: rgba(196, 226, 246, 0.42);
   --panel-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(150, 196, 230, 0.12)),
-    radial-gradient(circle at top center, rgba(214, 238, 255, 0.34), transparent 52%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.52), inset 0 0 0 1px rgba(160, 205, 235, 0.2);
-  --status-surface: linear-gradient(180deg, rgba(222, 240, 252, 0.46), rgba(166, 206, 236, 0.3));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(150, 196, 230, 0.04)),
+    radial-gradient(circle at top center, rgba(214, 238, 255, 0.16), transparent 52%);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.34), inset 0 0 0 1px rgba(180, 214, 240, 0.14);
+  --status-surface: linear-gradient(180deg, rgba(226, 242, 252, 0.26), rgba(176, 212, 238, 0.15));
   /* Silver-blue board frame. */
   --board-frame:
     linear-gradient(145deg, #dcebf7, #7ba3c4),
     repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14) 3px, rgba(60, 110, 150, 0.08) 3px, rgba(60, 110, 150, 0.08) 10px);
-  --board-frame-shadow: inset 0 1px 0 rgba(244, 252, 255, 0.4), 0 20px 38px rgba(4, 18, 32, 0.36);
+  --board-frame-shadow: inset 0 1px 0 rgba(244, 252, 255, 0.4), 0 12px 26px rgba(4, 18, 32, 0.26);
   --board-inner-shadow: inset 0 0 0 2px rgba(240, 250, 255, 0.24);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(230, 244, 253, 0.88)),
-    radial-gradient(circle at bottom right, rgba(198, 226, 246, 0.38), transparent 46%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(232, 245, 253, 0.9)),
+    radial-gradient(circle at bottom right, rgba(198, 226, 246, 0.3), transparent 46%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  --button-surface: linear-gradient(180deg, rgba(248, 253, 255, 0.66), rgba(196, 226, 246, 0.42));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 6px 14px rgba(6, 28, 46, 0.22);
+  --button-surface: linear-gradient(180deg, rgba(250, 254, 255, 0.4), rgba(200, 228, 246, 0.22));
+  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46), 0 4px 10px rgba(6, 28, 46, 0.14);
   --modal-surface: linear-gradient(180deg, rgba(241, 250, 255, 0.9), rgba(198, 226, 246, 0.86));
   --modal-border: rgba(170, 212, 240, 0.4);
   --heading-glow: 0 0 22px rgba(198, 230, 255, 0.5);
@@ -96,12 +97,13 @@ body[data-vip-theme="vvip-moonlight"] {
 body[data-vip-theme="vvip-observatory"] {
   --bg: #150b2e;
   /* Dark starfield glass. This is the one room whose chrome is darker than its board, so the
-   * panel text flips light while the sudoku keeps its own dark `--cell-text` on light tiles. */
-  --panel: rgba(28, 18, 58, 0.58);
+   * panel text flips light while the sudoku keeps its own dark `--cell-text` on light tiles. The
+   * starfield has to stay visible, so the rails are a thin violet veil rather than a slab. */
+  --panel: rgba(34, 22, 70, 0.34);
   --line: #3a2a63;
   --soft-line: #8b83c4;
-  --text: #ece8ff;
-  --muted: #b9b0e4;
+  --text: #f3f0ff;
+  --muted: #c4bcec;
   --given: #6a6398;
   --player-a: #4b3fa8;
   --player-b: #0f8a86;
@@ -111,36 +113,36 @@ body[data-vip-theme="vvip-observatory"] {
   --matched-digit: #d8c98f;
   --matched-digit-text: #3f300c;
   --cell-text: #1a1338;
-  --shadow: 0 22px 46px rgba(6, 2, 22, 0.5);
-  --button-bg: rgba(52, 38, 96, 0.6);
+  --shadow: 0 14px 32px rgba(6, 2, 22, 0.36);
+  --button-bg: rgba(66, 50, 118, 0.32);
   --button-border: #d3b063;
-  --board-bg: rgba(20, 12, 44, 0.6);
-  --cell-bg: rgba(246, 244, 255, 0.93);
-  --feedback-surface: rgba(42, 30, 78, 0.6);
+  --board-bg: transparent;
+  --cell-bg: rgba(247, 245, 255, 0.94);
+  --feedback-surface: rgba(48, 34, 88, 0.38);
   --page-overlay:
     radial-gradient(circle at 50% 10%, rgba(206, 184, 255, 0.2), transparent 30%),
-    linear-gradient(180deg, rgba(14, 6, 34, 0.38), rgba(8, 3, 22, 0.64));
+    linear-gradient(180deg, rgba(14, 6, 34, 0.34), rgba(8, 3, 22, 0.58));
   --page-ambient:
     radial-gradient(circle at 16% 24%, rgba(142, 178, 255, 0.18), transparent 22%),
     radial-gradient(circle at 84% 76%, rgba(216, 178, 255, 0.16), transparent 22%);
-  --panel-border: rgba(158, 140, 226, 0.34);
+  --panel-border: rgba(178, 158, 236, 0.34);
   --panel-surface:
-    linear-gradient(180deg, rgba(126, 106, 200, 0.26), rgba(28, 16, 58, 0.16)),
-    radial-gradient(circle at 22% 8%, rgba(211, 176, 99, 0.16), transparent 44%);
-  --panel-inset: inset 0 1px 0 rgba(206, 190, 255, 0.24), inset 0 0 0 1px rgba(140, 120, 210, 0.18);
-  --status-surface: linear-gradient(180deg, rgba(58, 42, 104, 0.62), rgba(30, 18, 62, 0.5));
+    linear-gradient(180deg, rgba(134, 112, 210, 0.12), rgba(28, 16, 58, 0.05)),
+    radial-gradient(circle at 22% 8%, rgba(211, 176, 99, 0.1), transparent 44%);
+  --panel-inset: inset 0 1px 0 rgba(206, 190, 255, 0.16), inset 0 0 0 1px rgba(140, 120, 210, 0.14);
+  --status-surface: linear-gradient(180deg, rgba(66, 48, 120, 0.34), rgba(34, 20, 70, 0.22));
   /* Gold-purple board frame. */
   --board-frame:
     linear-gradient(145deg, #efd79a, #5b48a4),
     repeating-linear-gradient(90deg, rgba(255, 246, 214, 0.12), rgba(255, 246, 214, 0.12) 3px, rgba(80, 62, 150, 0.1) 3px, rgba(80, 62, 150, 0.1) 10px);
-  --board-frame-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.36), 0 22px 42px rgba(3, 1, 16, 0.6);
+  --board-frame-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.36), 0 14px 30px rgba(3, 1, 16, 0.44);
   --board-inner-shadow: inset 0 0 0 2px rgba(211, 176, 99, 0.24);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 236, 255, 0.9)),
-    radial-gradient(circle at bottom right, rgba(206, 192, 255, 0.4), transparent 48%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 238, 255, 0.92)),
+    radial-gradient(circle at bottom right, rgba(206, 192, 255, 0.32), transparent 48%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  --button-surface: linear-gradient(180deg, rgba(96, 74, 158, 0.5), rgba(46, 30, 88, 0.42));
-  --button-shadow: inset 0 1px 0 rgba(214, 196, 255, 0.28), 0 6px 16px rgba(3, 1, 18, 0.42);
+  --button-surface: linear-gradient(180deg, rgba(112, 88, 176, 0.26), rgba(52, 34, 98, 0.18));
+  --button-shadow: inset 0 1px 0 rgba(214, 196, 255, 0.2), 0 4px 12px rgba(3, 1, 18, 0.28);
   --modal-surface: linear-gradient(180deg, rgba(46, 32, 84, 0.94), rgba(26, 16, 54, 0.92));
   --modal-border: rgba(158, 140, 226, 0.36);
   --heading-glow: 0 0 26px rgba(190, 168, 255, 0.5);
@@ -160,10 +162,10 @@ body[data-vip-theme="vvip-sakura"] {
   --bg: #2b1622;
   /* Warm washi glass: thin, lightly tinted, and translucent enough that the moon garden reads
    * through the rails. Dark plum text stays readable on the light master artwork. */
-  --panel: rgba(255, 246, 240, 0.5);
+  --panel: rgba(255, 248, 243, 0.26);
   --line: #5f3b4c;
   --soft-line: #c39aad;
-  --text: #2b1a24;
+  --text: #26151f;
   --muted: #6b4a5a;
   --given: #9a7186;
   --player-a: #9c4a6f;
@@ -174,36 +176,36 @@ body[data-vip-theme="vvip-sakura"] {
   --matched-digit: rgba(250, 224, 190, 0.94);
   --matched-digit-text: #7a4a15;
   --cell-text: #2b1a24;
-  --shadow: 0 22px 46px rgba(38, 12, 26, 0.34);
-  --button-bg: rgba(255, 248, 243, 0.46);
+  --shadow: 0 14px 30px rgba(38, 12, 26, 0.22);
+  --button-bg: rgba(255, 250, 246, 0.28);
   --button-border: #b98aa0;
-  --board-bg: rgba(255, 240, 232, 0.3);
-  --cell-bg: rgba(255, 252, 248, 0.93);
-  --feedback-surface: rgba(255, 242, 236, 0.44);
+  --board-bg: transparent;
+  --cell-bg: rgba(255, 253, 250, 0.94);
+  --feedback-surface: rgba(255, 244, 238, 0.28);
   --page-overlay:
     radial-gradient(circle at 50% 12%, rgba(255, 226, 236, 0.2), transparent 30%),
-    linear-gradient(180deg, rgba(40, 16, 28, 0.3), rgba(26, 9, 18, 0.56));
+    linear-gradient(180deg, rgba(40, 16, 28, 0.28), rgba(26, 9, 18, 0.52));
   --page-ambient:
     radial-gradient(circle at 14% 28%, rgba(255, 200, 220, 0.2), transparent 24%),
     radial-gradient(circle at 86% 72%, rgba(246, 214, 150, 0.14), transparent 22%);
-  --panel-border: rgba(214, 172, 190, 0.4);
+  --panel-border: rgba(226, 190, 206, 0.42);
   --panel-surface:
-    linear-gradient(180deg, rgba(255, 253, 250, 0.46), rgba(252, 226, 234, 0.24)),
-    radial-gradient(circle at top center, rgba(255, 236, 214, 0.4), transparent 52%);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 1px rgba(220, 180, 196, 0.16);
-  --status-surface: linear-gradient(180deg, rgba(255, 250, 246, 0.5), rgba(253, 230, 234, 0.32));
+    linear-gradient(180deg, rgba(255, 253, 250, 0.16), rgba(252, 226, 234, 0.06)),
+    radial-gradient(circle at top center, rgba(255, 236, 214, 0.18), transparent 52%);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 0 0 1px rgba(228, 194, 208, 0.14);
+  --status-surface: linear-gradient(180deg, rgba(255, 251, 247, 0.28), rgba(253, 232, 236, 0.16));
   /* Washi-paper / soft gold board frame. */
   --board-frame:
     linear-gradient(145deg, #fbe3ea, #c9a24a),
     repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.16) 3px, rgba(180, 130, 150, 0.08) 3px, rgba(180, 130, 150, 0.08) 10px);
-  --board-frame-shadow: inset 0 1px 0 rgba(255, 246, 238, 0.5), 0 20px 36px rgba(40, 14, 28, 0.3);
+  --board-frame-shadow: inset 0 1px 0 rgba(255, 246, 238, 0.5), 0 12px 26px rgba(40, 14, 28, 0.22);
   --board-inner-shadow: inset 0 0 0 2px rgba(255, 246, 240, 0.28);
   --cell-surface:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 242, 244, 0.9)),
-    radial-gradient(circle at bottom right, rgba(255, 222, 228, 0.42), transparent 48%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 244, 246, 0.92)),
+    radial-gradient(circle at bottom right, rgba(255, 222, 228, 0.34), transparent 48%);
   --cell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
-  --button-surface: linear-gradient(180deg, rgba(255, 253, 251, 0.66), rgba(253, 232, 232, 0.46));
-  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 6px 14px rgba(70, 24, 44, 0.18);
+  --button-surface: linear-gradient(180deg, rgba(255, 253, 251, 0.42), rgba(253, 234, 234, 0.26));
+  --button-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 4px 10px rgba(70, 24, 44, 0.12);
   --modal-surface: linear-gradient(180deg, rgba(255, 252, 249, 0.93), rgba(255, 240, 240, 0.9));
   --modal-border: rgba(214, 172, 190, 0.4);
   --heading-glow: 0 0 22px rgba(255, 214, 200, 0.42);
@@ -213,6 +215,64 @@ body[data-vip-theme="vvip-sakura"] {
   --status-backdrop: blur(12px);
   --feedback-backdrop: blur(9px);
   --modal-backdrop-filter: blur(17px) saturate(118%);
+}
+
+/* ---------------------------------------------------------------- *
+ * Shared surface treatment — one implementation for all three rooms, web and Discord alike.
+ *
+ * The rooms differ only through the custom properties above; the structure below is identical
+ * everywhere, so nothing is duplicated per host or per theme. A room background is the subject:
+ *   A. info containers keep a whisper of glass instead of a card,
+ *   B. the board loses its outer plate but keeps the themed frame and its own opaque tiles,
+ *   C. the digit rail drops its plate and its keys become thin translucent chips.
+ * Cell surfaces, fixed/filled/error/selected states and the Notes grid are intentionally untouched.
+ * ---------------------------------------------------------------- */
+
+/* A. Info containers: the panel geometry stays (hit area, radius, focus ring), the slab does not. */
+body[data-vvip-theme] .status-panel,
+body[data-vvip-theme] .controls-panel,
+body[data-vvip-theme] .room-summary-card,
+body[data-vvip-theme] .ranked-summary-card,
+body[data-vvip-theme] .ranked-leaderboard-card {
+  box-shadow: var(--panel-inset);
+}
+
+/* B. Board wrapper: no plate, no clip — the themed frame ring around the cells carries the shape. */
+body[data-vvip-theme] .board-panel {
+  background: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* C. Digit rail: no plate; the keys keep their own border, fill and pressed/disabled states. */
+body[data-vvip-theme] .keypad-panel {
+  background: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Keeps the light rail copy readable straight on the artwork without darkening a whole card. */
+body[data-vvip-theme] .keypad-panel .control-label,
+body[data-vvip-theme] .keypad-panel .legend,
+body[data-vvip-theme] .keypad-panel .ranked-leaderboard-status {
+  text-shadow: var(--vvip-rail-text-shadow, 0 1px 2px rgba(255, 255, 255, 0.55));
+}
+
+body[data-vvip-theme="vvip-observatory"] .keypad-panel .control-label,
+body[data-vvip-theme="vvip-observatory"] .keypad-panel .legend,
+body[data-vvip-theme="vvip-observatory"] .keypad-panel .ranked-leaderboard-status {
+  --vvip-rail-text-shadow: 0 1px 3px rgba(6, 2, 22, 0.7);
+}
+
+body[data-vvip-theme] .keypad-button,
+body[data-vvip-theme] .chip-button {
+  font-weight: 700;
 }
 
 /* ---------------------------------------------------------------- *

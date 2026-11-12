@@ -95,13 +95,35 @@ async function resolveDiscordSdkConstructor() {
   return getDiscordSdkConstructor();
 }
 
+/**
+ * Host signals for "this page is running inside a Discord Activity frame".
+ *
+ * These are deliberately *not* the runtime decision. They only decide whether it is worth fetching
+ * the SDK and whether a failed handshake should be reported rather than swallowed. Only a resolved
+ * `discordSdk.ready()` may ever set `state.runtime.kind = "discord"`.
+ *
+ * Keep this list byte-for-byte equivalent to `isLikelyDiscordHost()` in
+ * `./vendor/discord-runtime-loader.js`. That loader already decided whether to download the SDK
+ * from exactly these signals, so any divergence here silently desynchronises the two halves of the
+ * same check.
+ */
+function getDiscordHostSignals() {
+  const hostname = window.location.hostname || "";
+  const search = window.location.search || "";
+  const referrer = document.referrer || "";
+
+  return {
+    hostname: hostname || "(none)",
+    byHostname: hostname.includes("discordsays.com") || hostname.includes("discordapp.net"),
+    byQueryParam: search.includes("frame_id=") || search.includes("instance_id="),
+    byReferrer: referrer.includes("discord.com") || referrer.includes("discordsays.com"),
+    sdkLoaderStarted: Boolean(window.__DISCORD_SDK_PROMISE__),
+  };
+}
+
 function isLikelyDiscordFrame() {
-  return Boolean(
-    window.location.hostname.includes("discordsays.com")
-    || window.location.hostname.includes("discordapp.net")
-    || window.location.search.includes("frame_id=")
-    || window.location.search.includes("instance_id="),
-  );
+  const signals = getDiscordHostSignals();
+  return signals.byHostname || signals.byQueryParam || signals.byReferrer;
 }
 
 /**
@@ -195,9 +217,13 @@ async function initRuntimeEnvironment() {
     state.runtime.kind = "web";
     state.runtime.channelId = "";
     state.runtime.channelType = "";
+    // `discordReadyHandshake` only exists when the vendored loader already decided this was a
+    // Discord-like host, so a handshake that outlives the timeout is still worth waiting for.
+    // This used to be gated on `isLikelyDiscordFrame()`: a navigation that dropped the frame query
+    // parameters turned a slow-but-successful handshake into a permanently web layout.
+    promoteSurfaceWhenDiscordHandshakeLands();
     if (isLikelyDiscordFrame()) {
       setDiscordRuntimeError(error?.message || "Discord SDK failed to initialize.");
-      promoteSurfaceWhenDiscordHandshakeLands();
     } else {
       clearDiscordRuntimeError();
     }
@@ -258,7 +284,7 @@ const vipThemeLabels = Object.fromEntries(
 
 // VVIP room themes are registered by ./vvip/vvip-theme.js, which is only loaded on the VIP Room
 // page. Everything below stays null-safe so the other pages keep working untouched.
-const VVIP_SKIN_CSS_PATH = "./vvip/vvip-theme.css?v=20261112-runtime-rooms";
+const VVIP_SKIN_CSS_PATH = "./vvip/vvip-theme.css?v=20261112-vvip-transparency";
 
 function getVvipModule() {
   const vvipModule = window.SUDOKU_VVIP;
@@ -6776,30 +6802,75 @@ function readAssetBuildVersion(assetName) {
   return match ? decodeURIComponent(match[1]) : "(none)";
 }
 
+function readElementBox(selector) {
+  const node = document.querySelector(selector);
+  if (!node) {
+    return "(not found)";
+  }
+
+  const box = node.getBoundingClientRect();
+  return `${Math.round(box.width)} x ${Math.round(box.height)}`;
+}
+
+/**
+ * Read-only snapshot for the real Discord host, where `discordSdk.ready()` cannot be reproduced
+ * locally. Every field below answers one of the open questions about the three-column layout:
+ *
+ *   1. when does `runtime.kind` become "discord"  -> runtime.kind + ready() handshake
+ *   2. does anything overwrite it back to "web"   -> runtime.kind is written in exactly one place
+ *   3. do Lobby / VIP / VVIP all run the SDK init -> "page entry" + SDK module load
+ *   4. which element does the three-column CSS need -> `body[data-runtime-kind]` + app-shell
+ *   5. does that element persist on the game page -> "body data-runtime-kind" + app-shell box
+ *   6. is the breakpoint iframe / viewport sized  -> viewport + media-query matches
+ *   7. did it fall back because of height         -> "three-column gate" + board box
+ *   8. is a stale cache or lost priority to blame -> "build css / js"
+ *
+ * It never mutates state, the DOM surface or the SDK, and reports no tokens, secrets, session
+ * identifiers or user profile data.
+ */
 function collectRuntimeDiagnostics() {
   const shell = document.querySelector(".app-shell");
   const shellStyle = shell ? window.getComputedStyle(shell) : null;
   const shellBox = shell ? shell.getBoundingClientRect() : null;
-  const sdkLoadStarted = Boolean(window.__DISCORD_SDK_PROMISE__);
+  const signals = getDiscordHostSignals();
   const handshakeState = discordReadyHandshake
     ? (state.runtime.kind === "discord" ? "resolved" : "pending or failed")
     : "not attempted";
+  const wideMatch = window.matchMedia("(min-width: 880px)").matches;
+  const shortMatch = window.matchMedia("(max-height: 559px)").matches;
+  const gridAreas = shellStyle ? shellStyle.gridTemplateAreas : "(not found)";
+  const threeColumn = typeof gridAreas === "string" && gridAreas.includes("board") && gridAreas.indexOf("board") !== gridAreas.lastIndexOf("board");
 
   return [
     ["page entry", `${document.body?.dataset.pageLabel || "(none)"} / player=${document.body?.dataset.playerPage || "(none)"} / ${window.location.pathname}`],
     ["runtime.kind", state.runtime.kind],
-    ["SDK module load", sdkLoadStarted ? "started" : "skipped (not a Discord-like host)"],
+    ["SDK module load", signals.sdkLoaderStarted ? "started" : "skipped (no Discord host signal)"],
     ["SDK constructor", typeof window.DiscordSDK === "function" ? "available" : "missing"],
     ["ready() handshake", handshakeState],
     ["init failure", state.runtime.lastError || "none"],
+    ["host signal: hostname", `${signals.hostname} -> ${signals.byHostname ? "match" : "no"}`],
+    ["host signal: query param", signals.byQueryParam ? "match" : "no"],
+    ["host signal: referrer", signals.byReferrer ? "match" : "no"],
     ["body data-runtime-kind", document.body?.getAttribute("data-runtime-kind") || "(unset)"],
     ["viewport", `${window.innerWidth} x ${window.innerHeight}`],
+    ["media: min-width 880px", wideMatch ? "matched" : "no"],
+    ["media: max-height 559px", shortMatch ? "matched" : "no"],
+    ["three-column gate", threeColumn ? "active" : "inactive"],
     ["app-shell box", shellBox ? `${Math.round(shellBox.width)} x ${Math.round(shellBox.height)}` : "(not found)"],
-    ["grid-template-areas", shellStyle ? shellStyle.gridTemplateAreas : "(not found)"],
+    ["grid-template-areas", gridAreas],
     ["grid-template-columns", shellStyle ? shellStyle.gridTemplateColumns : "(not found)"],
+    ["board box", readElementBox("#sudoku-board")],
+    ["keypad box", readElementBox(".keypad-panel")],
+    ["controls box", readElementBox(".controls-panel")],
     ["active theme", document.body?.dataset.vvipTheme || document.body?.dataset.vipTheme || "(none)"],
     ["build css / js", `${readAssetBuildVersion("styles.css")} / ${readAssetBuildVersion("app.js")}`],
   ];
+}
+
+function formatRuntimeDiagnostics() {
+  return collectRuntimeDiagnostics()
+    .map(([label, value]) => `${label}: ${value}`)
+    .join("\n");
 }
 
 function setupRuntimeDiagnostics() {
@@ -6840,7 +6911,7 @@ function setupRuntimeDiagnostics() {
   panel.innerHTML = [
     '<h2><span>Runtime diagnostics</span><button type="button" data-rtd-close aria-label="Close diagnostics">close</button></h2>',
     '<dl data-rtd-body></dl>',
-    '<div class="rtd-actions"><button type="button" data-rtd-refresh>refresh</button></div>',
+    '<div class="rtd-actions"><button type="button" data-rtd-refresh>refresh</button><button type="button" data-rtd-copy>copy</button></div>',
   ].join("");
   document.body.appendChild(panel);
 
@@ -6854,6 +6925,27 @@ function setupRuntimeDiagnostics() {
 
   panel.querySelector("[data-rtd-close]")?.addEventListener("click", () => panel.remove());
   panel.querySelector("[data-rtd-refresh]")?.addEventListener("click", render);
+  // The panel lives inside the Activity iframe, where copying is far easier than transcribing it.
+  panel.querySelector("[data-rtd-copy]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    const text = formatRuntimeDiagnostics();
+
+    const done = () => {
+      button.textContent = "copied";
+      window.setTimeout(() => {
+        button.textContent = "copy";
+      }, 1600);
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => {
+        button.textContent = "copy failed";
+      });
+      return;
+    }
+
+    window.prompt("Runtime diagnostics", text);
+  });
   render();
 
   // Cheap and read-only: the surface can change after a slow handshake or a viewport resize.

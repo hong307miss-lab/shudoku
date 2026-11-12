@@ -186,8 +186,19 @@ test("the wide Discord layout declares the three-column rail grid and no full-wi
     assert.match(stylesSource, new RegExp(`grid-area:\\s*${area}\\s*;`));
   });
 
-  assert.match(stylesSource, /@media \(min-width: 880px\) and \(min-height: 560px\)/);
-  assert.match(stylesSource, /@media \(max-width: 879px\), \(max-height: 559px\)/);
+  // Host identity and available space are two separate questions. The three-column contract is
+  // gated on width only, so a short Activity panel keeps the rails instead of collapsing into the
+  // long vertical web page.
+  assert.match(stylesSource, /@media \(min-width: 880px\) \{/);
+  assert.doesNotMatch(stylesSource, /@media \(min-width: 880px\) and \(min-height: 560px\)/);
+
+  // Short landscape is still three columns, just tightened: the rows become fractions so a crowded
+  // rail scrolls inside the viewport rather than overflowing the page.
+  assert.match(stylesSource, /@media \(min-width: 880px\) and \(max-height: 559px\)/);
+
+  // The only stacked, page-scrolling fallback is the narrow layout.
+  assert.match(stylesSource, /@media \(max-width: 879px\) \{/);
+  assert.doesNotMatch(stylesSource, /\(max-width: 879px\), \(max-height: 559px\)/);
 });
 
 test("the board owns the widest track and the rails stay bounded", () => {
