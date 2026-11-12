@@ -802,6 +802,79 @@ test("the diagnostics entry is read-only, reports the required fields and never 
   assert.doesNotMatch(diagnosticsSource, /global_name|avatar|discriminator|email/i);
 });
 
+test("the diagnostics panel separates every launch stage and never leaks a host value", () => {
+  const diagnosticsSource = extractFunctionSource("collectRuntimeDiagnostics");
+
+  // The web layout alone cannot tell "the SDK module never loaded" from "the constructor threw" from
+  // "the handshake never came back", so each stage is reported on its own row.
+  [
+    "page url origin",
+    "full-page navigation",
+    "SDK module load",
+    "SDK library",
+    "SDK constructor",
+    "host signal: hostname",
+    "host signal: query params",
+    "host signal: referrer",
+    "host signal: sdk loader",
+  ].forEach((label) => {
+    assert.match(diagnosticsSource, new RegExp(`\\["${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}",`), `the panel must report ${label}`);
+  });
+
+  // Host signals are reduced to present / absent: neither the hostname nor a query parameter value
+  // may reach the panel, and the page URL is reduced to its pathname and origin.
+  assert.doesNotMatch(diagnosticsSource, /signals\.hostname/);
+  assert.doesNotMatch(diagnosticsSource, /location\.search/);
+  assert.doesNotMatch(diagnosticsSource, /location\.href/);
+  assert.doesNotMatch(diagnosticsSource, /location\.hash/);
+
+  // Every launch stage is read off the state the bootstrap path writes, never recomputed here.
+  ["sdkModule", "sdkLibrary", "sdkConstructor", "readyState", "pageLoads"].forEach((field) => {
+    assert.match(diagnosticsSource, new RegExp(`state\\.runtime\\.${field}`), `the panel must read state.runtime.${field}`);
+  });
+
+  // The panel must never assert the Activity proxy: it reports the origin and nothing more.
+  assert.match(extractFunctionSource("initRuntimeEnvironment"), /state\.runtime\.sdkConstructor = "ok"/);
+  assert.match(extractFunctionSource("initRuntimeEnvironment"), /state\.runtime\.readyState = "pending"/);
+});
+
+test("a rapid tap burst opens the diagnostics panel, and only outside interactive controls", () => {
+  assert.match(appSource, /const DIAGNOSTICS_TAP_COUNT = \d+/);
+  assert.match(appSource, /const DIAGNOSTICS_TAP_WINDOW_MS = \d+/);
+  assert.match(appSource, /target\.closest\(DIAGNOSTICS_TAP_IGNORE\)/);
+  assert.match(appSource, /diagnosticsTapCount < DIAGNOSTICS_TAP_COUNT/);
+  assert.match(appSource, /diagnosticsTapCount = 0;\s*toggleRuntimeDiagnostics\(\);/);
+
+  // The board cells, the keypad and every control are buttons, so play can never trip the burst.
+  const ignoreList = /const DIAGNOSTICS_TAP_IGNORE = "([^"]+)"/.exec(appSource);
+  assert.ok(ignoreList, "DIAGNOSTICS_TAP_IGNORE must stay declared");
+  ["button", "input", "textarea"].forEach((selector) => {
+    assert.ok(ignoreList[1].includes(selector), `the burst must ignore ${selector} clicks`);
+  });
+  assert.ok(ignoreList[1].includes("a,"), "the burst must ignore link clicks");
+
+  // The burst is an in-memory gesture, not a persisted flag.
+  const burstStart = appSource.indexOf("window.addEventListener(\"click\"");
+  const burstSource = appSource.slice(burstStart, appSource.indexOf("window.addEventListener(\"keydown\"", burstStart));
+  assert.doesNotMatch(burstSource, /localStorage|sessionStorage/);
+});
+
+test("the Activity page-load counter survives an in-app jump without touching localStorage", () => {
+  const source = extractFunctionSource("recordActivityPageLoad");
+
+  assert.match(source, /readSessionValue\(ACTIVITY_PAGE_LOAD_STORAGE_KEY\)/);
+  assert.match(source, /writeSessionValue\(ACTIVITY_PAGE_LOAD_STORAGE_KEY/);
+  assert.match(source, /state\.runtime\.pageLoads/);
+  assert.doesNotMatch(source, /localStorage/);
+  assert.doesNotMatch(source, /\.clear\(\)/);
+
+  // Stamped once per document, and observational only: the runtime decision never reads it.
+  assert.match(appSource, /recordActivityPageLoad\(\);/);
+  assert.doesNotMatch(extractFunctionSource("isLikelyDiscordFrame"), /pageLoads/);
+  assert.doesNotMatch(extractFunctionSource("initRuntimeEnvironment"), /pageLoads/);
+  assert.match(appSource, /pageLoads: 0,/);
+});
+
 /* ----------------------------------------------------------------- *
  * 9. Keeping the Activity layout across pages, and starting a new
  *    Activity session from the initial lobby

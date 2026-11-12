@@ -5,6 +5,12 @@ const DISCORD_AUTH_STORAGE_KEY = "discord-sudoku-discord-auth-v1";
 // store survives every in-app page jump and dies with the Activity, which is exactly the difference
 // between "the player moved from the Lobby to the VIP Room" and "the player reopened the Activity".
 const ACTIVITY_SESSION_STORAGE_KEY = "discord-sudoku-activity-session-v1";
+// Counts the documents this browsing context has loaded. The real Discord host cannot be instrumented
+// from the outside, so this is the only way the diagnostic panel can tell "the first document of the
+// Activity" apart from "a later document reached by a full-page navigation" - the exact distinction
+// the cross-page layout failure lives in. Like `ACTIVITY_SESSION_STORAGE_KEY` it lives in
+// sessionStorage and is never read by the runtime decision.
+const ACTIVITY_PAGE_LOAD_STORAGE_KEY = "discord-sudoku-activity-page-loads-v1";
 const ROOM_LINK_PARAM = "roomId";
 const ROOM_CLIENT_ID_KEY = "discord-sudoku-room-client-id-v1";
 const ROOM_JOINED_AT_KEY = "discord-sudoku-room-joined-at-v1";
@@ -85,18 +91,30 @@ async function resolveDiscordSdkConstructor() {
   const pendingSdk = window.__DISCORD_SDK_PROMISE__;
 
   if (pendingSdk && typeof pendingSdk.then === "function") {
+    state.runtime.sdkModule = "loading";
+
     try {
       const resolved = await pendingSdk;
 
       if (resolved) {
+        state.runtime.sdkModule = "loaded";
+        state.runtime.sdkLibrary = "available";
         return resolved;
       }
+
+      state.runtime.sdkModule = "loaded (empty export)";
     } catch (error) {
+      state.runtime.sdkModule = `failed (${error?.name || "Error"})`;
       console.warn("Discord Activity SDK module failed to resolve.", error);
     }
+  } else {
+    // No host signal at all: the vendored loader never even started the same-origin ESM import.
+    state.runtime.sdkModule = "not requested (no host signal)";
   }
 
-  return getDiscordSdkConstructor();
+  const globalConstructor = getDiscordSdkConstructor();
+  state.runtime.sdkLibrary = globalConstructor ? "available (global)" : "missing";
+  return globalConstructor;
 }
 
 /**
@@ -162,6 +180,7 @@ function promoteSurfaceWhenDiscordHandshakeLands() {
 
       // The handshake landed after the timeout: promote the surface exactly as a fast ready() would.
       state.runtime.kind = "discord";
+      state.runtime.readyState = "resolved (after the timeout)";
       applyDiscordRuntimeDetails();
       syncRuntimeSurface();
 
@@ -277,12 +296,26 @@ function beginDiscordActivitySession() {
   return true;
 }
 
+/**
+ * Records that this document just loaded, so the diagnostic panel can report whether the page the
+ * host is showing was reached by a full-page navigation. Purely observational: the count only ever
+ * feeds the panel, never a layout or SDK decision, and it is not in the same storage key as the
+ * Activity session marker, so overlapping the two can never confuse them.
+ */
+function recordActivityPageLoad() {
+  const previous = Number(readSessionValue(ACTIVITY_PAGE_LOAD_STORAGE_KEY)) || 0;
+  state.runtime.pageLoads = previous === 0 ? 1 : previous + 1;
+  writeSessionValue(ACTIVITY_PAGE_LOAD_STORAGE_KEY, String(state.runtime.pageLoads));
+  return state.runtime.pageLoads;
+}
+
 async function initRuntimeEnvironment() {
   const DiscordSDKConstructor = await resolveDiscordSdkConstructor();
   setDiscordAuthState(readStoredDiscordAuth());
 
   if (!DiscordSDKConstructor) {
     state.runtime.kind = "web";
+    state.runtime.sdkLibrary = "missing";
     clearDiscordRuntimeError();
     revealDiscordActivitySurface();
     syncRuntimeSurface();
@@ -296,7 +329,9 @@ async function initRuntimeEnvironment() {
     // object here left `discordSdk.clientId` as an object, so the RPC handshake never echoed a
     // valid `client_id`, `ready()` never resolved, and the runtime silently fell back to "web".
     discordSdk = new DiscordSDKConstructor(DISCORD_CLIENT_ID);
+    state.runtime.sdkConstructor = "ok";
     discordReadyHandshake = discordSdk.ready();
+    state.runtime.readyState = "pending";
     // A late rejection must not surface as an unhandled rejection once the race below has settled.
     discordReadyHandshake.catch(() => {});
 
@@ -309,6 +344,7 @@ async function initRuntimeEnvironment() {
 
     // `ready()` resolved inside the race above — only now may the runtime claim Discord.
     state.runtime.kind = "discord";
+    state.runtime.readyState = "resolved";
     applyDiscordRuntimeDetails();
     // A new Activity launch must start from the initial lobby, so a board finished in the previous
     // launch is dropped before the launch decision runs. An in-app page jump lands on the very same
@@ -329,6 +365,17 @@ async function initRuntimeEnvironment() {
     state.runtime.kind = "web";
     state.runtime.channelId = "";
     state.runtime.channelType = "";
+    // Record *which* stage failed, for the diagnostics panel only. A constructor that never ran
+    // leaves `readyState` at "not attempted"; a handshake that was awaited but never settled is a
+    // timeout, and anything else is a rejection from the SDK itself.
+    if (state.runtime.readyState === "pending") {
+      state.runtime.readyState = /timed out/.test(error?.message || "")
+        ? "timed out"
+        : `rejected (${error?.name || "Error"})`;
+    }
+    if (state.runtime.sdkConstructor !== "ok") {
+      state.runtime.sdkConstructor = `failed (${error?.name || "Error"})`;
+    }
     // `discordReadyHandshake` only exists when the vendored loader already decided this was a
     // Discord-like host, so a handshake that outlives the timeout is still worth waiting for.
     // This used to be gated on `isLikelyDiscordFrame()`: a navigation that dropped the frame query
@@ -562,6 +609,15 @@ const state = {
     auth: getDefaultDiscordAuthState(),
     lastError: "",
     activitySession: "pending",
+    // Launch stages, recorded for the diagnostics panel only. They never feed the runtime decision:
+    // they exist so the real Discord host can tell "the SDK module never loaded" apart from "the
+    // module loaded but the constructor threw" and from "the handshake never came back", which the
+    // web layout alone cannot distinguish.
+    sdkModule: "not requested",
+    sdkLibrary: "unknown",
+    sdkConstructor: "not attempted",
+    readyState: "not attempted",
+    pageLoads: 0,
   },
   vipTheme: DEFAULT_VIP_THEME,
   gameStart: {
@@ -7010,26 +7066,29 @@ function readElementBox(selector) {
  * Read-only snapshot for the real Discord host, where `discordSdk.ready()` cannot be reproduced
  * locally. Every field below answers one of the open questions about the three-column layout:
  *
- *   1. when does `runtime.kind` become "discord"  -> runtime.kind + ready() handshake
- *   2. does anything overwrite it back to "web"   -> runtime.kind is written in exactly one place
- *   3. do Lobby / VIP / VVIP all run the SDK init -> "page entry" + SDK module load
- *   4. which element does the three-column CSS need -> `body[data-runtime-kind]` + app-shell
- *   5. does that element persist on the game page -> "body data-runtime-kind" + app-shell box
- *   6. is the breakpoint iframe / viewport sized  -> viewport + media-query matches
- *   7. did it fall back because of height         -> "three-column gate" + board box
- *   8. is a stale cache or lost priority to blame -> "build css / js"
+ *   1. which document is on screen                  -> "page entry" + "page url origin"
+ *   2. was it reached by a full-page navigation     -> "full-page navigation"
+ *   3. when does `runtime.kind` become "discord"    -> runtime.kind + ready() handshake
+ *   4. if it never does, which launch stage failed  -> SDK module load / library / constructor
+ *   5. do Lobby / VIP / VVIP all run the SDK init   -> "page entry" + SDK module load
+ *   6. which element does the three-column CSS need -> `body[data-runtime-kind]` + app-shell
+ *   7. did the Discord host signals survive the jump -> the four "host signal" rows
+ *   8. is the breakpoint iframe / viewport sized    -> viewport + media-query matches
+ *   9. did it fall back because of height           -> "three-column gate" + board box
+ *  10. is a stale cache or lost priority to blame   -> "build css / js"
  *
  * It never mutates state, the DOM surface or the SDK, and reports no tokens, secrets, session
- * identifiers or user profile data.
+ * identifiers, query parameter values or user profile data: the host signals are reduced to
+ * present / absent and the URL is reduced to its origin.
  */
 function collectRuntimeDiagnostics() {
   const shell = document.querySelector(".app-shell");
   const shellStyle = shell ? window.getComputedStyle(shell) : null;
   const shellBox = shell ? shell.getBoundingClientRect() : null;
   const signals = getDiscordHostSignals();
-  const handshakeState = discordReadyHandshake
-    ? (state.runtime.kind === "discord" ? "resolved" : "pending or failed")
-    : "not attempted";
+  const hostname = window.location.hostname || "";
+  const origin = `${window.location.protocol}//${hostname || "(none)"}`;
+  const proxySuffix = /^[a-z0-9-]+\.discordsays\.com$/.test(hostname) ? "(Discord Activity proxy host)" : "(not a Discord proxy host)";
   const wideMatch = window.matchMedia("(min-width: 880px)").matches;
   const shortMatch = window.matchMedia("(max-height: 559px)").matches;
   const gridAreas = shellStyle ? shellStyle.gridTemplateAreas : "(not found)";
@@ -7039,15 +7098,19 @@ function collectRuntimeDiagnostics() {
 
   return [
     ["page entry", `${document.body?.dataset.pageLabel || "(none)"} / player=${document.body?.dataset.playerPage || "(none)"} / ${window.location.pathname}`],
+    ["page url origin", `${origin} ${proxySuffix}`],
+    ["full-page navigation", state.runtime.pageLoads > 1 ? `yes, document ${state.runtime.pageLoads} of this Activity session` : "no, first document of this Activity session"],
     ["runtime.kind", state.runtime.kind],
     ["activity session", state.runtime.activitySession],
-    ["SDK module load", signals.sdkLoaderStarted ? "started" : "skipped (no Discord host signal)"],
-    ["SDK constructor", typeof window.DiscordSDK === "function" ? "available" : "missing"],
-    ["ready() handshake", handshakeState],
+    ["SDK module load", state.runtime.sdkModule],
+    ["SDK library", state.runtime.sdkLibrary],
+    ["SDK constructor", state.runtime.sdkConstructor],
+    ["ready() handshake", state.runtime.readyState],
     ["init failure", state.runtime.lastError || "none"],
-    ["host signal: hostname", `${signals.hostname} -> ${signals.byHostname ? "match" : "no"}`],
-    ["host signal: query param", signals.byQueryParam ? "match" : "no"],
-    ["host signal: referrer", signals.byReferrer ? "match" : "no"],
+    ["host signal: hostname", signals.byHostname ? "present" : "absent"],
+    ["host signal: query params", signals.byQueryParam ? "present" : "absent"],
+    ["host signal: referrer", signals.byReferrer ? "present" : "absent"],
+    ["host signal: sdk loader", signals.sdkLoaderStarted ? "present" : "absent"],
     ["body data-runtime-kind", document.body?.getAttribute("data-runtime-kind") || "(unset)"],
     ["viewport", `${window.innerWidth} x ${window.innerHeight}`],
     ["media: min-width 880px", wideMatch ? "matched" : "no"],
@@ -7175,6 +7238,45 @@ function toggleRuntimeDiagnostics() {
   setupRuntimeDiagnostics();
 }
 
+/**
+ * Second trigger for the same panel: five quick taps anywhere that is not already a control.
+ *
+ * Inside a Discord Activity the iframe only receives keydown once it holds focus, which the mode
+ * picker can keep away on the first Lobby, and a touch screen has no chord at all. A rapid burst on
+ * a non-interactive area has no other meaning on any page, and the board, keypad and every button
+ * are excluded, so solving play can never open the panel by accident.
+ */
+const DIAGNOSTICS_TAP_COUNT = 5;
+const DIAGNOSTICS_TAP_WINDOW_MS = 1600;
+const DIAGNOSTICS_TAP_IGNORE = "button, a, input, select, textarea, [role='button'], [contenteditable='true']";
+let diagnosticsTapCount = 0;
+let diagnosticsTapStartedAt = 0;
+
+window.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+
+  if (!target || target.closest(DIAGNOSTICS_TAP_IGNORE)) {
+    diagnosticsTapCount = 0;
+    return;
+  }
+
+  const now = Date.now();
+
+  if (now - diagnosticsTapStartedAt > DIAGNOSTICS_TAP_WINDOW_MS) {
+    diagnosticsTapCount = 0;
+    diagnosticsTapStartedAt = now;
+  }
+
+  diagnosticsTapCount += 1;
+
+  if (diagnosticsTapCount < DIAGNOSTICS_TAP_COUNT) {
+    return;
+  }
+
+  diagnosticsTapCount = 0;
+  toggleRuntimeDiagnostics();
+});
+
 window.addEventListener("keydown", (event) => {
   const isShortcutChord = (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey;
   if (!isShortcutChord || event.key.toLowerCase() !== "d") {
@@ -7184,6 +7286,8 @@ window.addEventListener("keydown", (event) => {
   event.preventDefault();
   toggleRuntimeDiagnostics();
 });
+
+recordActivityPageLoad();
 
 modeOptionButtons.forEach((button) => {
   button.addEventListener("click", handleModeOptionClick);
